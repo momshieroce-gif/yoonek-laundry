@@ -1,6 +1,17 @@
 import { route } from 'quasar/wrappers'
 import { createRouter, createMemoryHistory, createWebHistory, createWebHashHistory } from 'vue-router'
+import { auth, onAuthStateChanged } from '../boot/firebase'
 import routes from './routes'
+
+// Waits for Firebase to resolve the current auth state (handles page refresh)
+function getCurrentUser() {
+  return new Promise((resolve) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      unsubscribe()
+      resolve(user)
+    })
+  })
+}
 
 export default route(function ({ store }) {
   const createHistory = process.env.SERVER
@@ -13,10 +24,20 @@ export default route(function ({ store }) {
     history: createHistory(process.env.VUE_ROUTER_BASE)
   })
 
-  Router.beforeEach((to, from, next) => {
-    // Defer auth check to avoid Pinia initialization issues
-    // Auth check is handled in components
-    next()
+  Router.beforeEach(async (to, from, next) => {
+    const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
+
+    if (!requiresAuth) {
+      next()
+      return
+    }
+
+    const user = await getCurrentUser()
+    if (user) {
+      next()
+    } else {
+      next('/login')
+    }
   })
 
   return Router

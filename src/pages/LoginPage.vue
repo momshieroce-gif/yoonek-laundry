@@ -90,7 +90,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { auth, db, doc, getDoc, setDoc, googleProvider, signInWithPopup, signInWithEmailAndPassword } from '../boot/firebase'
+import { auth, db, doc, getDoc, setDoc, updateDoc, serverTimestamp, googleProvider, signInWithPopup, signInWithEmailAndPassword } from '../boot/firebase'
 import { useUserStore } from '../stores/user'
 import { useQuasar } from 'quasar'
 import CustomLogo from '../components/CustomLogo.vue'
@@ -150,19 +150,39 @@ async function handleGoogleLogin() {
 async function handleUserLogin(user) {
   try {
     // Check if user document exists
-    const userDoc = await getDoc(doc(db, 'users', user.uid))
-    
+    const userRef = doc(db, 'users', user.uid)
+    const userDoc = await getDoc(userRef)
+
     if (!userDoc.exists()) {
-      // Create new user document
-      await setDoc(doc(db, 'users', user.uid), {
+      // Split Google display name into first/last name
+      const nameParts = (user.displayName || '').trim().split(/\s+/)
+      const firstName = nameParts.slice(0, -1).join(' ') || nameParts[0] || ''
+      const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : ''
+
+      // Create new user document (relationship: roleId -> roles/{roleId})
+      await setDoc(userRef, {
+        firstName,
+        lastName,
         email: user.email,
-        displayName: user.displayName || '',
-        role: 'staff', // Default role
-        createdAt: new Date(),
-        updatedAt: new Date()
+        mobileNumber: user.phoneNumber || '',
+        roleId: 'staff', // Default role, references roles collection
+        status: 'active',
+        avatarUrl: user.photoURL || '',
+        lastLoginAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: user.uid,
+        updatedBy: user.uid
+      })
+    } else {
+      // Existing user: record the login
+      await updateDoc(userRef, {
+        lastLoginAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid
       })
     }
-    
+
     await userStore.setUser(user)
     $q.notify({
       type: 'positive',

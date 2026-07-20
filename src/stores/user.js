@@ -8,8 +8,8 @@ export const useUserStore = defineStore('user', () => {
   const userData = ref(null)
   const loading = ref(false)
 
-  const isAdmin = computed(() => userData.value?.role === 'admin')
-  const isStaff = computed(() => userData.value?.role === 'staff')
+  const isAdmin = computed(() => userData.value?.roleId === 'admin')
+  const isStaff = computed(() => userData.value?.roleId === 'staff')
   const isAuthenticated = computed(() => !!user.value)
 
   async function setUser(firebaseUser) {
