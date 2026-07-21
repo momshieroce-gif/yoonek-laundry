@@ -64,6 +64,7 @@
             type="date"
             outlined
             dense
+            :min="minDate"
             class="sale-input"
           />
         </div>
@@ -74,6 +75,7 @@
             type="date"
             outlined
             dense
+            :min="minDate"
             class="sale-input"
           />
         </div>
@@ -247,7 +249,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { db, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where, orderBy } from '../boot/firebase'
@@ -275,6 +277,12 @@ const searchText = ref('')
 const selectedBranch = ref('')
 const startDate = ref('')
 const endDate = ref('')
+
+const minDate = computed(() => {
+  if (userStore.isAdmin) return undefined
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+})
 
 const salesColumns = [
   { name: 'customerName', label: 'Customer', field: 'customerName', align: 'left' },
@@ -334,20 +342,27 @@ async function loadBranches() {
 async function loadSales() {
   loading.value = true
   try {
-    let q = query(collection(db, 'sales'), orderBy('createdAt', 'desc'))
-    
-    // Staff can only see monthly sales
-    if (userStore.isStaff) {
-      const now = new Date()
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
-      q = query(collection(db, 'sales'), where('createdAt', '>=', firstDay), orderBy('createdAt', 'desc'))
+    const constraints = [orderBy('createdAt', 'desc')]
+
+    if (startDate.value) {
+      const start = new Date(startDate.value)
+      start.setHours(0, 0, 0, 0)
+      constraints.push(where('createdAt', '>=', start))
     }
+
+    if (endDate.value) {
+      const end = new Date(endDate.value)
+      end.setHours(23, 59, 59, 999)
+      constraints.push(where('createdAt', '<=', end))
+    }
+
+    const q = query(collection(db, 'sales'), ...constraints)
 
     const snapshot = await getDocs(q)
     sales.value = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      date: doc.data().createdAt?.toDate()?.toLocaleDateString() || 'N/A'
+      date: doc.data().createdAt?.toDate()?.toLocaleDateString('en-CA') || 'N/A'
     }))
   } catch (error) {
     $q.notify({
@@ -358,6 +373,10 @@ async function loadSales() {
     loading.value = false
   }
 }
+
+watch([startDate, endDate], () => {
+  loadSales()
+})
 
 function getStatusColor(status) {
   const colors = {
@@ -518,11 +537,62 @@ function printSale(sale) {
 }
 
 function printReport() {
-  window.print()
+  const branch = branchOptions.value.find(b => b.value === selectedBranch.value)?.label || 'All Branches'
+  const reportColumns = salesColumns.filter(c => c.name !== 'actions')
+  const headerHtml = reportColumns.map(c => `<th>${c.label}</th>`).join('')
+  const rowsHtml = filteredSales.value.map(sale => {
+    const cells = reportColumns.map(c => {
+      let val = sale[c.field] ?? ''
+      if (c.name === 'amount') val = formatCurrency(sale.amount)
+      return `<td>${val}</td>`
+    }).join('')
+    return `<tr>${cells}</tr>`
+  }).join('')
+
+  const printContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Sales Report</title>
+      <style>
+        body { font-family: 'Segoe UI', sans-serif; padding: 24px; color: #4A2038; }
+        h2 { margin: 0 0 8px; color: #E91E8C; }
+        .meta { margin-bottom: 16px; font-size: 14px; color: #8A4E71; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #FDD3E8; }
+        th { background: #FFF5FA; color: #E91E8C; font-weight: 700; }
+      </style>
+    </head>
+    <body onload="window.print(); window.onafterprint = () => window.close()">
+      <h2>Sales Report</h2>
+      <div class="meta">
+        Branch: ${branch}<br>
+        Period: ${startDate.value || 'All'} to ${endDate.value || 'All'}
+      </div>
+      <table>
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </body>
+    </html>
+  `
+  const printWindow = window.open('', '_blank')
+  if (printWindow) {
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+    printWindow.focus()
+  }
 }
 
 onMounted(() => {
   selectedBranch.value = userStore.userData?.branchId || ''
+
+  if (!userStore.isAdmin) {
+    const now = new Date()
+    startDate.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    endDate.value = now.toISOString().split('T')[0]
+  }
+
   loadBranches()
   loadSales()
 })
