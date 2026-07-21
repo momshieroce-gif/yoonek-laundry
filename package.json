@@ -10,7 +10,7 @@
     "lint": "eslint --ext .js,.vue ./",
     "format": "prettier --write \"**/*.{js,vue,scss,html,md,json}\" --ignore-path .gitignore",
     "server": "node server/index.js",
-    "seed": "node scripts/seed.js",
+    "seed": "node server/seed.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run server\""
   },
   "dependencies": {

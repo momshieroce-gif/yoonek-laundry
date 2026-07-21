@@ -1,4 +1,5 @@
 const admin = require('firebase-admin');
+const crypto = require('crypto');
 const serviceAccount = require('./firebase-service-account.json');
 
 // Initialize Firebase Admin
@@ -7,10 +8,55 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
+const auth = admin.auth();
+
+// ⚠️ DEMO LOGIN PASSWORDS - move to environment variables in production
+const SEED_PASSWORDS = {
+  'admin@yooneklaundry.com': 'admin123',
+  'staff@yooneklaundry.com': 'staff123'
+};
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+async function resetCollection(collectionName) {
+  const collectionRef = db.collection(collectionName);
+  const docs = await collectionRef.listDocuments();
+
+  if (docs.length === 0) return;
+
+  const batch = db.batch();
+  docs.forEach((doc) => batch.delete(doc));
+  await batch.commit();
+  console.log(`Cleared ${docs.length} documents from ${collectionName}`);
+}
+
+async function resetAuthUsers() {
+  try {
+    const listUsersResult = await auth.listUsers(1000);
+    if (listUsersResult.users.length === 0) return;
+
+    const deletePromises = listUsersResult.users.map((user) => auth.deleteUser(user.uid));
+    await Promise.all(deletePromises);
+    console.log(`Cleared ${listUsersResult.users.length} Firebase Auth users`);
+  } catch (error) {
+    console.warn('Warning: could not clear auth users:', error.message);
+  }
+}
 
 async function seedDatabase() {
   try {
     console.log('Starting database seeding...');
+
+    // Reset existing data
+    console.log('Resetting existing data...');
+    await resetAuthUsers();
+    await resetCollection('users');
+    await resetCollection('roles');
+    await resetCollection('branches');
+    await resetCollection('sales');
+    await resetCollection('inventory');
 
     // Seed Users
     console.log('Seeding users...');
@@ -19,9 +65,10 @@ async function seedDatabase() {
         uid: 'admin-user-1',
         email: 'admin@yooneklaundry.com',
         displayName: 'Admin User',
-        role: 'admin',
+        roleId: 'admin',
         phone: '+1234567890',
         branchId: null,
+        passwordHash: hashPassword(SEED_PASSWORDS['admin@yooneklaundry.com']),
         createdAt: new Date(),
         updatedAt: new Date()
       },
@@ -29,17 +76,29 @@ async function seedDatabase() {
         uid: 'staff-user-1',
         email: 'staff@yooneklaundry.com',
         displayName: 'Staff User',
-        role: 'staff',
+        roleId: 'staff',
         phone: '+1234567891',
         branchId: null,
+        passwordHash: hashPassword(SEED_PASSWORDS['staff@yooneklaundry.com']),
         createdAt: new Date(),
         updatedAt: new Date()
       }
     ];
 
     for (const user of users) {
+      const plainPassword = SEED_PASSWORDS[user.email];
+
+      // Create Firebase Auth user (securely handled by Firebase)
+      await auth.createUser({
+        uid: user.uid,
+        email: user.email,
+        password: plainPassword,
+        displayName: user.displayName
+      });
+
+      // Store user document exactly as defined in the users array
       await db.collection('users').doc(user.uid).set(user);
-      console.log(`Created user: ${user.email}`);
+      console.log(`Created user: ${user.email} (password: ${plainPassword})`);
     }
 
     // Seed Roles (stored as a reference in users, but we can create a roles collection)

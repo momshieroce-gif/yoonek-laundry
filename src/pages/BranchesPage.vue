@@ -1,23 +1,29 @@
 <template>
-  <q-page class="q-pa-md">
-    <div class="row items-center justify-between q-mb-md">
-      <div class="text-h4 text-weight-bold">Branches</div>
+  <q-page class="branches-page q-pa-md">
+    <!-- Page header -->
+    <div class="page-header q-mb-lg">
+      <div>
+        <div class="page-title">Branches</div>
+        <div class="page-subtitle">Manage your laundry branches and locations</div>
+      </div>
       <q-btn
         v-if="userStore.isAdmin"
         label="Add Branch"
-        color="primary"
         icon="add"
+        rounded
+        unelevated
+        class="add-btn"
         @click="showAddDialog = true"
       />
     </div>
 
-    <q-card class="data-table">
+    <!-- Branches table -->
+    <q-card class="glass-card data-table">
       <q-table
         :rows="branches"
         :columns="branchColumns"
         row-key="id"
         flat
-        bordered
         :loading="loading"
       >
         <template v-slot:body-cell-actions="props">
@@ -27,7 +33,7 @@
               round
               dense
               icon="edit"
-              color="primary"
+              class="action-edit"
               @click="editBranch(props.row)"
               v-if="userStore.isAdmin"
             />
@@ -36,7 +42,7 @@
               round
               dense
               icon="delete"
-              color="negative"
+              class="action-delete"
               @click="deleteBranch(props.row.id)"
               v-if="userStore.isAdmin"
             />
@@ -46,10 +52,11 @@
     </q-card>
 
     <!-- Add/Edit Dialog -->
-    <q-dialog v-model="showAddDialog">
-      <q-card style="min-width: 400px">
+    <q-dialog v-model="showAddDialog" class="branch-dialog">
+      <q-card class="dialog-card">
         <q-card-section>
-          <div class="text-h6">{{ editingBranch ? 'Edit Branch' : 'Add New Branch' }}</div>
+          <div class="dialog-title">{{ editingBranch ? 'Edit Branch' : 'Add New Branch' }}</div>
+          <div class="dialog-subtitle">Fill in the branch details below</div>
         </q-card-section>
 
         <q-card-section>
@@ -59,31 +66,51 @@
               label="Branch Name"
               outlined
               dense
+              class="branch-input"
               :rules="[val => !!val || 'Name is required']"
-            />
+            >
+              <template v-slot:prepend>
+                <q-icon name="store" color="pink-5" />
+              </template>
+            </q-input>
             <q-input
               v-model="branchForm.address"
               label="Address"
               outlined
               dense
+              class="branch-input"
               :rules="[val => !!val || 'Address is required']"
-            />
+            >
+              <template v-slot:prepend>
+                <q-icon name="location_on" color="pink-5" />
+              </template>
+            </q-input>
             <q-input
               v-model="branchForm.phone"
               label="Phone"
               outlined
               dense
+              class="branch-input"
               :rules="[val => !!val || 'Phone is required']"
-            />
+            >
+              <template v-slot:prepend>
+                <q-icon name="phone" color="pink-5" />
+              </template>
+            </q-input>
             <q-input
               v-model="branchForm.manager"
               label="Manager"
               outlined
               dense
-            />
+              class="branch-input"
+            >
+              <template v-slot:prepend>
+                <q-icon name="person" color="pink-5" />
+              </template>
+            </q-input>
             <div class="row justify-end q-mt-md">
-              <q-btn flat label="Cancel" v-close-popup class="q-mr-sm" />
-              <q-btn type="submit" label="Save" color="primary" :loading="loading" />
+              <q-btn flat rounded label="Cancel" v-close-popup class="cancel-btn q-mr-sm" />
+              <q-btn type="submit" rounded unelevated label="Save" class="save-btn" :loading="loading" />
             </div>
           </q-form>
         </q-card-section>
@@ -230,3 +257,141 @@ onMounted(() => {
   loadBranches()
 })
 </script>
+
+<style scoped>
+/* ===== Pink branches page ===== */
+.branches-page {
+  color: #4A2038;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 12px 4px;
+}
+
+.page-title {
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: #4A2038;
+  line-height: 1.1;
+}
+
+.page-subtitle {
+  font-size: 1rem;
+  color: #8A4E71;
+  margin-top: 4px;
+}
+
+.add-btn {
+  background: linear-gradient(135deg, #E91E8C 0%, #FF69B4 100%);
+  color: white;
+  font-weight: 700;
+  padding: 0 20px;
+  box-shadow: 0 10px 28px rgba(233, 30, 140, 0.35);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 36px rgba(233, 30, 140, 0.45);
+}
+
+/* ===== Glass table card ===== */
+.glass-card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(233, 30, 140, 0.12);
+  border-radius: 24px;
+  box-shadow: 0 12px 32px rgba(233, 30, 140, 0.1);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+
+:deep(.q-table th) {
+  background: rgba(233, 30, 140, 0.08);
+  color: #4A2038;
+  font-weight: 700;
+}
+
+:deep(.q-table td) {
+  color: #4A2038;
+}
+
+.action-edit {
+  color: #E91E8C;
+  transition: transform 0.2s ease;
+}
+
+.action-edit:hover {
+  transform: scale(1.15);
+  background: rgba(233, 30, 140, 0.1);
+}
+
+.action-delete {
+  color: #E91E8C;
+  transition: transform 0.2s ease;
+}
+
+.action-delete:hover {
+  transform: scale(1.15);
+  color: #C2185B;
+  background: rgba(233, 30, 140, 0.1);
+}
+
+/* ===== Dialog ===== */
+.branch-dialog :deep(.q-dialog__backdrop) {
+  background: rgba(74, 32, 56, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.dialog-card {
+  min-width: 420px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 30px 70px rgba(233, 30, 140, 0.25);
+}
+
+.dialog-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #4A2038;
+}
+
+.dialog-subtitle {
+  font-size: 0.9rem;
+  color: #8A4E71;
+}
+
+.branch-input :deep(.q-field__control) {
+  border-radius: 14px;
+}
+
+.branch-input :deep(.q-field__control::before) {
+  border-color: rgba(233, 30, 140, 0.35);
+}
+
+.branch-input :deep(.q-field--focused .q-field__control::after) {
+  border-color: #E91E8C;
+}
+
+.cancel-btn {
+  color: #8A4E71;
+  font-weight: 600;
+}
+
+.save-btn {
+  background: linear-gradient(135deg, #E91E8C 0%, #FF69B4 100%);
+  color: white;
+  font-weight: 700;
+  padding: 0 22px;
+  box-shadow: 0 10px 28px rgba(233, 30, 140, 0.35);
+  transition: transform 0.25s ease;
+}
+
+.save-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 36px rgba(233, 30, 140, 0.45);
+}
+</style>

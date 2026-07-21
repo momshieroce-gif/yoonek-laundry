@@ -1,87 +1,68 @@
 <template>
-  <q-page class="login-page flex flex-center">
+  <q-page class="login-page">
     <!-- Decorative floating blobs -->
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
 
-    <div class="login-card">
-      <div class="text-center q-mb-lg">
-        <div class="login-logo-wrap q-mb-md">
-          <CustomLogo class="login-logo" />
-        </div>
-        <h1 class="login-title q-mb-xs">Welcome Back</h1>
-        <div class="login-subtitle">
-          Sign in to your Yoonek Laundry account
-        </div>
+    <div class="login-wrap row no-wrap">
+      <!-- Left brand panel -->
+      <div class="brand-panel col-7 flex items-end justify-center q-ml-md">
+          <img src="/logo.png" alt="Yoonek Laundry" class="brand-logo q-mb-lg" />
       </div>
 
-      <q-form @submit="handleEmailLogin" class="q-gutter-md">
-        <q-input
-          v-model="email"
-          label="Email"
-          type="email"
-          outlined
-          dense
-          class="login-input"
-          :rules="[val => !!val || 'Email is required', val => isValidEmail(val) || 'Invalid email']"
-        >
-          <template v-slot:prepend>
-            <q-icon name="email" color="pink-5" />
-          </template>
-        </q-input>
+      <!-- Right form panel -->
+      <div class="form-panel col-5 flex flex-center">
+        <div class="login-card">
+          <div class="login-subtitle q-mb-lg">
+            Sign in to your account
+          </div>
 
-        <q-input
-          v-model="password"
-          label="Password"
-          :type="showPassword ? 'text' : 'password'"
-          outlined
-          dense
-          class="login-input"
-          :rules="[val => !!val || 'Password is required']"
-        >
-          <template v-slot:prepend>
-            <q-icon name="lock" color="pink-5" />
-          </template>
-          <template v-slot:append>
-            <q-icon
-              :name="showPassword ? 'visibility_off' : 'visibility'"
-              class="cursor-pointer"
-              @click="showPassword = !showPassword"
+          <q-form @submit="handleEmailLogin" class="q-gutter-md">
+            <q-input
+              v-model="email"
+              label="Email"
+              type="email"
+              outlined
+              dense
+              class="login-input"
+              :rules="[val => !!val || 'Email is required', val => isValidEmail(val) || 'Invalid email']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="email" color="pink-5" />
+              </template>
+            </q-input>
+
+            <q-input
+              v-model="password"
+              label="Password"
+              :type="showPassword ? 'text' : 'password'"
+              outlined
+              dense
+              class="login-input"
+              :rules="[val => !!val || 'Password is required']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="lock" color="pink-5" />
+              </template>
+              <template v-slot:append>
+                <q-icon
+                  :name="showPassword ? 'visibility_off' : 'visibility'"
+                  class="cursor-pointer"
+                  @click="showPassword = !showPassword"
+                />
+              </template>
+            </q-input>
+
+            <q-btn
+              type="submit"
+              label="Sign In"
+              rounded
+              unelevated
+              class="login-btn full-width q-py-sm q-mt-md"
+              :loading="loading"
             />
-          </template>
-        </q-input>
-
-        <q-btn
-          type="submit"
-          label="Sign In"
-          rounded
-          unelevated
-          class="login-btn full-width q-py-sm"
-          :loading="loading"
-        />
-      </q-form>
-
-      <div class="divider-row q-my-md">
-        <div class="divider-line"></div>
-        <span class="divider-text">or</span>
-        <div class="divider-line"></div>
-      </div>
-
-      <q-btn
-        @click="handleGoogleLogin"
-        label="Sign in with Google"
-        rounded
-        outline
-        class="google-btn full-width q-py-sm"
-        :loading="loading"
-      >
-        <template v-slot:prepend>
-          <img src="https://www.google.com/favicon.ico" style="width: 20px; height: 20px" />
-        </template>
-      </q-btn>
-
-      <div class="text-center q-mt-lg">
-        <q-btn flat rounded icon="arrow_back" label="Back to Home" @click="goToHome" class="back-btn" />
+          </q-form>
+        </div>
       </div>
     </div>
   </q-page>
@@ -90,10 +71,9 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { auth, db, doc, getDoc, setDoc, updateDoc, serverTimestamp, googleProvider, signInWithPopup, signInWithEmailAndPassword } from '../boot/firebase'
+import { auth, db, doc, getDoc, setDoc, updateDoc, serverTimestamp, signInWithEmailAndPassword } from '../boot/firebase'
 import { useUserStore } from '../stores/user'
 import { useQuasar } from 'quasar'
-import CustomLogo from '../components/CustomLogo.vue'
 
 const $q = useQuasar()
 const router = useRouter()
@@ -126,21 +106,6 @@ async function handleEmailLogin() {
     $q.notify({
       type: 'negative',
       message: 'Login failed: ' + error.message
-    })
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handleGoogleLogin() {
-  loading.value = true
-  try {
-    const result = await signInWithPopup(auth, googleProvider)
-    await handleUserLogin(result.user)
-  } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Google login failed: ' + error.message
     })
   } finally {
     loading.value = false
@@ -203,70 +168,125 @@ function goToHome() {
 </script>
 
 <style scoped>
-/* ===== Page base - matches LandingPage ===== */
+/* ===== Desktop-only login page ===== */
 .login-page {
   position: relative;
+  min-height: 100vh;
   overflow: hidden;
   background:
-    radial-gradient(circle at 15% 20%, rgba(233, 30, 140, 0.12) 0%, transparent 45%),
-    radial-gradient(circle at 85% 75%, rgba(233, 30, 140, 0.10) 0%, transparent 45%),
-    linear-gradient(160deg, #FFF5FA 0%, #FFE4F1 45%, #FDD3E8 100%);
+    radial-gradient(circle at 80% 20%, rgba(233, 30, 140, 0.18) 0%, transparent 45%),
+    radial-gradient(circle at 20% 80%, rgba(233, 30, 140, 0.14) 0%, transparent 45%),
+    linear-gradient(135deg, #E91E8C 0%, #C2185B 55%, #8A1557 100%);
 }
 
 /* ===== Floating blobs ===== */
 .blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60px);
+  filter: blur(80px);
   pointer-events: none;
   z-index: 0;
 }
 
 .blob-1 {
-  width: 400px;
-  height: 400px;
-  top: -120px;
-  right: -100px;
-  background: rgba(233, 30, 140, 0.25);
+  width: 520px;
+  height: 520px;
+  top: -180px;
+  right: -120px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .blob-2 {
-  width: 320px;
-  height: 320px;
-  bottom: -120px;
-  left: -120px;
-  background: rgba(255, 105, 180, 0.28);
+  width: 420px;
+  height: 420px;
+  bottom: -160px;
+  left: -100px;
+  background: rgba(255, 255, 255, 0.1);
 }
 
-/* ===== Glass card ===== */
-.login-card {
+/* ===== Two-panel layout ===== */
+.login-wrap {
   position: relative;
   z-index: 1;
-  width: 420px;
-  max-width: 92vw;
-  padding: 40px 36px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(233, 30, 140, 0.15);
-  border-radius: 28px;
-  box-shadow: 0 25px 60px rgba(233, 30, 140, 0.2);
+  min-height: 100vh;
 }
 
-/* ===== Logo ===== */
-.login-logo-wrap {
-  display: flex;
+/* ===== Left brand panel ===== */
+.brand-panel {
+  flex-direction: column;
   justify-content: center;
+  color: white;
 }
 
-.login-logo {
-  width: 96px;
-  height: 96px;
-  filter: drop-shadow(0 10px 24px rgba(233, 30, 140, 0.3));
+.brand-content {
+  width: 80%;
+  max-width: 680px;
+}
+
+.brand-logo {
+  width: 100%;
+  height: auto;
+  border-radius: 24px;
+  box-shadow:
+    0 30px 70px rgba(0, 0, 0, 0.25),
+    0 0 0 12px rgba(255, 255, 255, 0.15);
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+}
+
+.brand-logo:hover {
+  transform: scale(1.02);
+  box-shadow:
+    0 40px 90px rgba(0, 0, 0, 0.3),
+    0 0 0 16px rgba(255, 255, 255, 0.2);
+}
+
+.brand-title {
+  font-size: 3.2rem;
+  font-weight: 900;
+  letter-spacing: 4px;
+  margin: 0;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+
+.brand-tagline {
+  font-size: 1.3rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0;
+  letter-spacing: 1px;
+}
+
+.brand-back-btn {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0.5px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 10px 24px;
+}
+
+.brand-back-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ===== Right form panel ===== */
+.form-panel {
+  padding: 60px 0px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 52px 48px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 32px;
+  box-shadow: 0 40px 90px rgba(0, 0, 0, 0.22);
 }
 
 /* ===== Headings ===== */
 .login-title {
-  font-size: 1.8rem;
+  font-size: 2rem;
   font-weight: 900;
   color: #4A2038;
   margin: 0;
@@ -275,7 +295,20 @@ function goToHome() {
 
 .login-subtitle {
   color: #8A4E71;
-  font-size: 0.95rem;
+  font-size: 1rem;
+}
+
+/* ===== Inputs ===== */
+.login-input :deep(.q-field__control) {
+  border-radius: 14px;
+}
+
+.login-input :deep(.q-field__control::before) {
+  border-color: rgba(233, 30, 140, 0.35);
+}
+
+.login-input :deep(.q-field--focused .q-field__control::after) {
+  border-color: #E91E8C;
 }
 
 /* ===== Buttons ===== */
@@ -283,57 +316,14 @@ function goToHome() {
   background: linear-gradient(135deg, #E91E8C 0%, #FF69B4 100%);
   color: white;
   font-weight: 700;
-  box-shadow: 0 10px 30px rgba(233, 30, 140, 0.35);
+  font-size: 1rem;
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(233, 30, 140, 0.45);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .login-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 36px rgba(233, 30, 140, 0.45);
-}
-
-.google-btn {
-  color: #4A2038;
-  border-color: rgba(233, 30, 140, 0.4);
-  font-weight: 600;
-}
-
-.back-btn {
-  color: #E91E8C;
-  font-weight: 600;
-}
-
-/* ===== Divider ===== */
-.divider-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.divider-line {
-  flex: 1;
-  height: 1px;
-  background: rgba(233, 30, 140, 0.2);
-}
-
-.divider-text {
-  color: #B07E9A;
-  font-size: 0.85rem;
-}
-
-/* ===== Responsive ===== */
-@media (max-width: 480px) {
-  .login-card {
-    padding: 32px 22px;
-  }
-
-  .login-logo {
-    width: 80px;
-    height: 80px;
-  }
-
-  .login-title {
-    font-size: 1.5rem;
-  }
+  transform: translateY(-3px);
+  box-shadow: 0 20px 50px rgba(233, 30, 140, 0.55);
 }
 </style>

@@ -3,7 +3,7 @@ const routes = [
     path: '/',
     component: () => import('layouts/LandingLayout.vue'),
     children: [
-      { path: '', component: () => import('pages/LandingPage.vue') }
+      { path: '', component: () => import('pages/LoginPage.vue') }
     ]
   },
   {
@@ -19,10 +19,12 @@ const routes = [
     meta: { requiresAuth: true },
     children: [
       { path: '', component: () => import('pages/DashboardPage.vue') },
+      { path: 'dashboard', component: () => import('pages/DashboardPage.vue') },
       { path: 'profile', component: () => import('pages/ProfilePage.vue') },
       { path: 'branches', component: () => import('pages/BranchesPage.vue') },
       { path: 'sales', component: () => import('pages/SalesPage.vue') },
-      { path: 'inventory', component: () => import('pages/InventoryPage.vue') }
+      { path: 'inventory', component: () => import('pages/InventoryPage.vue') },
+      { path: 'users', component: () => import('pages/UsersPage.vue'), meta: { adminOnly: true } }
     ]
   },
   {
