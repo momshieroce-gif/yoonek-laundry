@@ -83,6 +83,20 @@
         </q-item>
 
         <q-item
+         v-if="userStore.isAdmin"
+          clickable
+          v-ripple
+          @click="navigateTo('sale-items')"
+          :class="['sidebar-item', isActiveRoute('sale-items') ? 'active-item' : '']">
+          <q-item-section avatar>
+            <q-icon name="category" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Service Types</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
           clickable
           v-ripple
           @click="navigateTo('inventory')"
@@ -122,6 +136,20 @@
           </q-item-section>
           <q-item-section>
             <q-item-label>Profile</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
+          @click="navigateTo('attendance')"
+          :class="['sidebar-item', isActiveRoute('attendance') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="fingerprint" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Attendance</q-item-label>
           </q-item-section>
         </q-item>
       </q-list>

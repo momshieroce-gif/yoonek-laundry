@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getDoc, doc } from 'firebase/firestore'
+import { getDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../boot/firebase'
 
 export const useUserStore = defineStore('user', () => {
@@ -15,6 +15,19 @@ export const useUserStore = defineStore('user', () => {
   async function setUser(firebaseUser) {
     user.value = firebaseUser
     await fetchUserData(firebaseUser.uid)
+
+    if (firebaseUser.emailVerified && userData.value?.status === 'pending') {
+      try {
+        await updateDoc(doc(db, 'users', firebaseUser.uid), {
+          status: 'active',
+          emailVerified: true,
+          updatedAt: serverTimestamp()
+        })
+        userData.value = { ...userData.value, status: 'active', emailVerified: true }
+      } catch (error) {
+        console.error('Error activating verified user:', error)
+      }
+    }
   }
 
   async function fetchUserData(uid) {

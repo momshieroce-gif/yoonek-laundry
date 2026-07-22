@@ -115,6 +115,7 @@ const averageOrder = ref(0)
 const totalBranches = ref(0)
 const lowStockItems = ref(0)
 const recentSales = ref([])
+const currentMonthSales = ref([])
 const topService = ref({ name: '', count: 0 })
 
 const userDisplayName = computed(() => {
@@ -149,17 +150,62 @@ const quickActions = [
   { label: 'New Sale', icon: 'add_shopping_cart', handler: () => router.push('/dashboard/sales') },
   { label: 'Inventory', icon: 'inventory', handler: () => router.push('/dashboard/inventory') },
   { label: 'Add Branch', icon: 'add_business', handler: () => router.push('/dashboard/branches'), admin: true },
-  { label: 'Print', icon: 'print', handler: () => window.print() }
+  { label: 'Print', icon: 'print', handler: () => printCurrentMonthSales() }
 ]
 
 const salesColumns = [
-  { name: 'id', label: 'ID', field: 'id', align: 'left', style: 'width: 120px' },
   { name: 'customerName', label: 'Customer', field: 'customerName', align: 'left' },
   { name: 'service', label: 'Service', field: 'service', align: 'left' },
   { name: 'amount', label: 'Amount', field: 'amount', align: 'right' },
   { name: 'status', label: 'Status', field: 'status', align: 'center' },
   { name: 'date', label: 'Date', field: 'date', align: 'left' }
 ]
+
+function printCurrentMonthSales() {
+  if (!currentMonthSales.value.length) return
+
+  const headerHtml = salesColumns
+    .map(col => `<th style="text-align:${col.align || 'left'}">${col.label}</th>`)
+    .join('')
+
+  const rowsHtml = currentMonthSales.value.map(row => {
+    const cells = salesColumns.map(col => {
+      let value = row[col.field]
+      if (col.field === 'amount') value = formatCurrency(value || 0)
+      return `<td style="text-align:${col.align || 'left'}">${value ?? ''}</td>`
+    }).join('')
+    return `<tr>${cells}</tr>`
+  }).join('')
+
+  const printContent = `
+    <html>
+      <head>
+        <title>Current Month Sales</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; color: #4A2038; }
+          h2 { color: #E91E8C; margin: 0 0 12px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #E91E8C; padding: 8px; font-size: 13px; }
+          th { background: rgba(233, 30, 140, 0.1); font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        <h2>Current Month Sales</h2>
+        <table>
+          <thead><tr>${headerHtml}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </body>
+    </html>
+  `
+
+  const printWindow = window.open('', '_blank')
+  printWindow.document.open()
+  printWindow.document.write(printContent)
+  printWindow.document.close()
+  printWindow.focus()
+  printWindow.print()
+}
 
 function statusColor(status) {
   const map = {
@@ -187,7 +233,6 @@ async function loadDashboardData() {
     )
     const salesSnapshot = await getDocs(salesQuery)
     recentSales.value = salesSnapshot.docs.map(doc => ({
-      id: doc.id,
       ...doc.data(),
       date: doc.data().createdAt?.toDate()?.toLocaleDateString() || 'N/A'
     }))
@@ -216,12 +261,22 @@ async function loadDashboardData() {
       })
       .reduce((sum, sale) => sum + (sale.amount || 0), 0)
 
-    monthlySales.value = allSales
+    currentMonthSales.value = allSales
       .filter(sale => {
         const saleDate = sale.createdAt?.toDate()
         return saleDate && saleDate >= thisMonth
       })
-      .reduce((sum, sale) => sum + (sale.amount || 0), 0)
+      .sort((a, b) => (b.createdAt?.toDate() || 0) - (a.createdAt?.toDate() || 0))
+      .map(sale => ({
+        customerName: sale.customerName || '',
+        service: sale.service || '',
+        amount: sale.amount || 0,
+        status: sale.status || '',
+        date: sale.createdAt?.toDate()?.toLocaleDateString() || 'N/A'
+      }))
+
+    monthlySales.value = currentMonthSales.value
+      .reduce((sum, sale) => sum + sale.amount, 0)
 
     // Top service
     const serviceCounts = {}

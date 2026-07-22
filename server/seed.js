@@ -55,8 +55,10 @@ async function seedDatabase() {
     await resetCollection('users');
     await resetCollection('roles');
     await resetCollection('branches');
+    await resetCollection('service_types');
     await resetCollection('sales');
     await resetCollection('inventory');
+    await resetCollection('attendance');
 
     // Seed Users
     console.log('Seeding users...');
@@ -127,7 +129,7 @@ async function seedDatabase() {
     console.log('Seeding branches...');
     const branches = [
       {
-        name: 'Main Branch',
+        name: 'YOONEK LAUNDRY HUB-PAJAC',
         address: '123 Main Street, City Center',
         phone: '+1234567890',
         manager: 'Admin User',
@@ -135,7 +137,23 @@ async function seedDatabase() {
         updatedAt: new Date()
       },
       {
-        name: 'Downtown Branch',
+        name: 'YOONEK LAUNDRY HUB-ABUNO',
+        address: '456 Downtown Ave, Business District',
+        phone: '+1234567891',
+        manager: 'Staff User',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        name: 'YOONEK LAUNDRY HUB-AGUS',
+        address: '456 Downtown Ave, Business District',
+        phone: '+1234567891',
+        manager: 'Staff User',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        name: 'YOONEK LAUNDRY HUB-PAKPAKAN',
         address: '456 Downtown Ave, Business District',
         phone: '+1234567891',
         manager: 'Staff User',
@@ -156,11 +174,469 @@ async function seedDatabase() {
       branchId: branchIds[1]
     });
 
+    // Seed Service Types
+    console.log('Seeding service types...');
+    const serviceTypes = [
+      //YOONEK LAUNDRY HUB-PAJAC  
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'FULL SERVICE (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 135,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'BEDDINGS/TOWELS/BLANKETS (6KG) ',
+        unit: 'kg',
+        minimumPerUnit: 6,
+        price: 135,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'COMFORTER (PER PC)',
+        unit: 'pc',
+        minimumPerUnit: 1,
+        price: 135,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'WASH ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 65,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'DRY ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'STAIN REMOVAL (MIN 3KG)',
+        unit: 'kg',
+        minimumPerUnit: 3,
+        price: 90,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'SPIN (PUGA) (11 minutes)',
+        unit: 'minutes',
+        minimumPerUnit: 11,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'ADD DRY - (10MINUTES)',
+        unit: 'minutes',
+        minimumPerUnit: 10,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'STEAM IRON - 50 PER PC',
+        unit: 'pc',
+        minimumPerUnit: 50,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[0],
+        branchName: branches[0].name,
+        name: 'VIP RUSH (2HRS) ',
+        unit: 'hours',
+        minimumPerUnit: 2,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      //YOONEK LAUNDRY HUB-ABUNO
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'FULL SERVICE (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 135,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'BEDDINGS/TOWELS/BLANKETS (6KG) ',
+        unit: 'kg',
+        minimumPerUnit: 6,
+        price: 145,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'COMFORTER (PER PC)',
+        unit: 'pc',
+        minimumPerUnit: 1,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+       {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'WASH ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 65,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'DRY ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 1,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'STAIN REMOVAL (MIN 3KG)',
+        unit: 'kg',
+        minimumPerUnit: 3,
+        price: 90,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'SPIN (PUGA) (11 minutes)',
+        unit: 'minutes',
+        minimumPerUnit: 11,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'ADD DRY - (10MINUTES)',
+        unit: 'minutes',
+        minimumPerUnit: 10,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'STEAM IRON - 50 PER PC',
+        unit: 'pc',
+        minimumPerUnit: 50,
+        price: 50,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[1],
+        branchName: branches[1].name,
+        name: 'VIP RUSH (2HRS) ',
+        unit: 'hours',
+        minimumPerUnit: 2,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+
+      //YOONEK LAUNDRY HUB-AGUS
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'FULL SERVICE (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 145,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'BEDDINGS/TOWELS/BLANKETS (6KG) ',
+        unit: 'kg',
+        minimumPerUnit: 6,
+        price: 145,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'COMFORTER (PER PC)',
+        unit: 'pc',
+        minimumPerUnit: 1,
+        price: 145,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+       {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'WASH ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 65,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'DRY ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'STAIN REMOVAL (MIN 3KG)',
+        unit: 'kg',
+        minimumPerUnit: 3,
+        price: 90,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'SPIN (PUGA) (11 minutes)',
+        unit: 'minutes',
+        minimumPerUnit: 11,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'ADD DRY - (10MINUTES)',
+        unit: 'minutes',
+        minimumPerUnit: 10,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'STEAM IRON - 50 PER PC',
+        unit: 'pc',
+        minimumPerUnit: 50,
+        price: 50,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[2],
+        branchName: branches[2].name,
+        name: 'VIP RUSH (2HRS) ',
+        unit: 'hours',
+        minimumPerUnit: 2,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+
+      //YOONEK LAUNDRY HUB-PAKPAKAN
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'FULL SERVICE (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 155,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'BEDDINGS/TOWELS/BLANKETS (6KG) ',
+        unit: 'kg',
+        minimumPerUnit: 6,
+        price: 155,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'COMFORTER (PER PC)',
+        unit: 'pc',
+        minimumPerUnit: 1,
+        price: 155,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+       {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'WASH ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 65,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'DRY ONLY (8KG)',
+        unit: 'kg',
+        minimumPerUnit: 8,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'STAIN REMOVAL (MIN 3KG)',
+        unit: 'kg',
+        minimumPerUnit: 3,
+        price: 90,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'SPIN (PUGA) (11 minutes)',
+        unit: 'minutes',
+        minimumPerUnit: 11,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'ADD DRY - (10MINUTES)',
+        unit: 'minutes',
+        minimumPerUnit: 10,
+        price: 20,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'STEAM IRON - 50 PER PC',
+        unit: 'pc',
+        minimumPerUnit: 50,
+        price: 50,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        branchId: branchIds[3],
+        branchName: branches[3].name,
+        name: 'VIP RUSH (2HRS) ',
+        unit: 'hours',
+        minimumPerUnit: 2,
+        price: 70,
+        createdBy: 'admin-user-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    ];
+
+    const seededServiceTypes = [];
+    for (const serviceType of serviceTypes) {
+      const docRef = await db.collection('service_types').add(serviceType);
+      seededServiceTypes.push({ id: docRef.id, ...serviceType });
+      console.log(`Created service type: ${serviceType.name}`);
+    }
+
     // Seed Sales
     console.log('Seeding sales...');
-    const services = ['Wash & Fold', 'Dry Cleaning', 'Ironing', 'Premium Service'];
     const statuses = ['Pending', 'In Progress', 'Ready', 'Completed'];
-    
+    const paymentStatuses = ['Paid', 'Unpaid'];
+    const paymentTypes = ['Cash', 'Gcash', 'Bank Transfer'];
     const sales = [];
     const now = new Date();
     
@@ -168,14 +644,17 @@ async function seedDatabase() {
       const date = new Date(now);
       date.setDate(date.getDate() - Math.floor(Math.random() * 60)); // Last 60 days
       
+      const serviceType = seededServiceTypes[i % seededServiceTypes.length];
       const sale = {
         branchId: branchIds[Math.floor(Math.random() * branchIds.length)],
         customerName: `Customer ${i + 1}`,
         customerPhone: `+1234567${String(i).padStart(4, '0')}`,
-        service: services[Math.floor(Math.random() * services.length)],
-        amount: parseFloat((Math.random() * 100 + 20).toFixed(2)),
+        service: serviceType.name,
+        amount: serviceType.price,
         weight: parseFloat((Math.random() * 10 + 1).toFixed(2)),
         status: statuses[Math.floor(Math.random() * statuses.length)],
+        paymentStatus: paymentStatuses[Math.floor(Math.random() * paymentStatuses.length)],
+        paymentType: paymentTypes[Math.floor(Math.random() * paymentTypes.length)],
         notes: `Special instructions for order #${i + 1}`,
         createdBy: Math.random() > 0.5 ? 'admin-user-1' : 'staff-user-1',
         createdAt: date,
@@ -216,6 +695,64 @@ async function seedDatabase() {
       }
     }
     console.log(`Created inventory items for ${branchIds.length} branches`);
+
+    // Seed Attendance (standard fields + biometric integration fields)
+    console.log('Seeding attendance...');
+    const attendanceStatuses = ['Present', 'Late', 'Absent', 'On Leave'];
+    const verifyMethods = ['fingerprint', 'face', 'card', 'pin'];
+    const attendanceUsers = [
+      { uid: 'admin-user-1', name: 'Admin User', branchId: branchIds[0], branchName: branches[0].name, biometricUserId: 'BIO-0001' },
+      { uid: 'staff-user-1', name: 'Staff User', branchId: branchIds[1], branchName: branches[1].name, biometricUserId: 'BIO-0002' }
+    ];
+
+    let attendanceCount = 0;
+    for (const attUser of attendanceUsers) {
+      for (let d = 0; d < 15; d++) {
+        const day = new Date(now);
+        day.setDate(day.getDate() - d);
+        if (day.getDay() === 0) continue; // skip Sundays
+
+        const status = d === 3 && attUser.uid === 'staff-user-1'
+          ? 'On Leave'
+          : attendanceStatuses[Math.floor(Math.random() * 2)]; // mostly Present/Late
+
+        const isAbsent = status === 'Absent' || status === 'On Leave';
+
+        const timeIn = new Date(day);
+        timeIn.setHours(8, status === 'Late' ? 15 + Math.floor(Math.random() * 45) : Math.floor(Math.random() * 10), 0, 0);
+        const timeOut = new Date(day);
+        timeOut.setHours(17, Math.floor(Math.random() * 30), 0, 0);
+
+        const workHours = isAbsent ? 0 : parseFloat(((timeOut - timeIn) / 3600000).toFixed(2));
+
+        await db.collection('attendance').add({
+          // Standard attendance fields
+          userId: attUser.uid,
+          userName: attUser.name,
+          branchId: attUser.branchId,
+          branchName: attUser.branchName,
+          date: day.toISOString().split('T')[0],
+          timeIn: isAbsent ? null : timeIn,
+          timeOut: isAbsent ? null : timeOut,
+          workHours,
+          status,
+          notes: '',
+          // Biometric integration fields
+          biometricUserId: attUser.biometricUserId,
+          deviceId: `ZK-${attUser.branchName === branches[0].name ? '01' : '02'}`,
+          deviceLocation: attUser.branchName,
+          verifyMethod: isAbsent ? null : verifyMethods[Math.floor(Math.random() * verifyMethods.length)],
+          verifyScore: isAbsent ? null : parseFloat((0.85 + Math.random() * 0.15).toFixed(2)),
+          punchTypeIn: isAbsent ? null : 'check-in',
+          punchTypeOut: isAbsent ? null : 'check-out',
+          syncedFromDevice: !isAbsent,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+        attendanceCount++;
+      }
+    }
+    console.log(`Created ${attendanceCount} attendance records`);
 
     console.log('Database seeding completed successfully!');
     process.exit(0);

@@ -13,7 +13,7 @@
           rounded
           unelevated
           class="add-btn"
-          @click="showAddDialog = true"
+          @click="openAddDialog"
         />
         <q-btn
           label="Print Report"
@@ -94,7 +94,7 @@
       >
         <template v-slot:body-cell-amount="props">
           <q-td :props="props" class="text-weight-bold">
-            {{ formatCurrency(props.row.amount) }}
+            {{ formatCurrency(props.row.total ?? props.row.amount) }}
           </q-td>
         </template>
         <template v-slot:body-cell-status="props">
@@ -155,6 +155,7 @@
               map-options
               class="sale-input"
               :rules="[val => !!val || 'Branch is required']"
+              @update:model-value="onBranchChange"
             />
             <q-input
               v-model="saleForm.customerName"
@@ -187,6 +188,7 @@
               dense
               class="sale-input"
               :rules="[val => !!val || 'Service type is required']"
+              @update:model-value="onServiceChange"
             />
             <div class="row q-col-gutter-md">
               <div class="col-6">
@@ -194,10 +196,12 @@
                   v-model.number="saleForm.amount"
                   label="Amount"
                   type="number"
+                  step="0.01"
                   outlined
                   dense
                   class="sale-input"
                   style="margin-left: 15px"
+                  :disable="!!saleForm.service"
                   :rules="[val => val > 0 || 'Amount must be greater than 0']"
                 >
                   <template v-slot:prepend>
@@ -207,12 +211,14 @@
               </div>
               <div class="col-6">
                 <q-input
-                  v-model="saleForm.weight"
-                  label="Weight (kg)"
+                  v-model.number="saleForm.weight"
+                  :label="unitLabel"
                   type="number"
                   outlined
                   dense
                   class="sale-input"
+                  :hint="selectedServiceType ? `${formatCurrency(Number(selectedServiceType.price || 0))}/${selectedServiceType.minimumPerUnit || 1} ${selectedServiceType.unit || ''}` : ''"
+                  @update:model-value="recomputeAmount"
                 >
                   <template v-slot:prepend>
                     <q-icon name="scale" color="pink-5" />
@@ -220,6 +226,71 @@
                 </q-input>
               </div>
             </div>
+            <div class="row q-col-gutter-md items-center">
+              <div class="col-9">
+                <q-select
+                  v-model="selectedInventory"
+                  label="Add Sale Items"
+                  :options="inventoryOptions"
+                  outlined
+                  dense
+                  emit-value
+                  map-options
+                  class="sale-input"
+                  style="margin-left: 15px"
+                />
+              </div>
+              <div class="col-3">
+                <q-btn
+                  label="Add"
+                  icon="add"
+                  unelevated
+                  class="save-btn"
+                  @click="addInventoryItem"
+                  :disable="!selectedInventory"
+                />
+              </div>
+            </div>
+
+            <q-list v-if="saleItems.length" class="q-mb-md">
+              <q-item v-for="group in groupedSaleItems" :key="group.name">
+                <q-item-section>
+                  <q-item-label>{{ group.name }} <span class="text-weight-bold">x {{ group.count }}</span></q-item-label>
+                  <q-item-label caption>{{ formatCurrency(group.price * group.count) }}</q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-btn flat round dense icon="remove" color="negative" @click="removeInventoryItem(group.name)" />
+                </q-item-section>
+              </q-item>
+            </q-list>
+            
+            <div
+              class="text-right q-pa-md q-mb-md text-white"
+              style="
+                background: linear-gradient(135deg, #E91E8C 0%, #FF69B4 100%);
+                border-radius: 18px;
+                box-shadow: 0 10px 28px rgba(233, 30, 140, 0.35);
+              "
+            >
+              <div class="text-caption" style="opacity: 0.9;">Overall Total</div>
+              <div class="text-h5 text-weight-bold">{{ formatCurrency(overallTotal) }}</div>
+            </div>
+            <q-select
+              v-model="saleForm.paymentType"
+              label="Payment Type"
+              :options="paymentTypeOptions"
+              outlined
+              dense
+              class="sale-input"
+            />
+            <q-select
+              v-model="saleForm.paymentStatus"
+              label="Payment Status"
+              :options="paymentStatusOptions"
+              outlined
+              dense
+              class="sale-input"
+            />
             <q-select
               v-model="saleForm.status"
               label="Status"
@@ -271,6 +342,9 @@ onMounted(async () => {
 const loading = ref(false)
 const sales = ref([])
 const branches = ref([])
+const inventory = ref([])
+const selectedInventory = ref(null)
+const saleItems = ref([])
 const showAddDialog = ref(false)
 const editingSale = ref(null)
 const searchText = ref('')
@@ -287,15 +361,17 @@ const minDate = computed(() => {
 const salesColumns = [
   { name: 'customerName', label: 'Customer', field: 'customerName', align: 'left' },
   { name: 'service', label: 'Service', field: 'service', align: 'left' },
-  { name: 'amount', label: 'Amount', field: 'amount', align: 'right' },
+  { name: 'amount', label: 'Total', field: row => row.total ?? row.amount, align: 'right' },
   { name: 'weight', label: 'Weight (kg)', field: 'weight', align: 'right' },
   { name: 'status', label: 'Status', field: 'status', align: 'center' },
   { name: 'date', label: 'Date', field: 'date', align: 'left' },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
 
-const serviceOptions = ['Wash & Fold', 'Dry Cleaning', 'Ironing', 'Premium Service']
+const serviceTypes = ref([])
 const statusOptions = ['Pending', 'In Progress', 'Ready', 'Completed', 'Cancelled']
+const paymentStatusOptions = ['Paid', 'Unpaid']
+const paymentTypeOptions = ['Cash', 'Gcash', 'Bank Transfer']
 
 const branchOptions = computed(() => 
   branches.value.map(branch => ({
@@ -336,6 +412,24 @@ async function loadBranches() {
     branches.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
   } catch (error) {
     console.error('Error loading branches:', error)
+  }
+}
+
+async function loadServiceTypes() {
+  try {
+    const snapshot = await getDocs(collection(db, 'service_types'))
+    serviceTypes.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+  } catch (error) {
+    console.error('Error loading service types:', error)
+  }
+}
+
+async function loadInventory() {
+  try {
+    const snapshot = await getDocs(collection(db, 'inventory'))
+    inventory.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+  } catch (error) {
+    console.error('Error loading inventory:', error)
   }
 }
 
@@ -397,8 +491,92 @@ const saleForm = ref({
   amount: 0,
   weight: 0,
   status: 'Pending',
+  paymentStatus: 'Unpaid',
+  paymentType: 'Cash',
   notes: ''
 })
+
+const serviceOptions = computed(() => {
+  const branchId = saleForm.value.branchId
+  return serviceTypes.value
+    .filter(st => !branchId || st.branchId === branchId)
+    .map(st => st.name)
+    .sort((a, b) => a.localeCompare(b))
+})
+
+const inventoryOptions = computed(() => {
+  const branchId = saleForm.value.branchId
+  return inventory.value
+    .filter(item => !branchId || item.branchId === branchId)
+    .map(item => ({
+      label: `${item.name} - ${formatCurrency(item.unitPrice)}`,
+      value: { name: item.name, price: item.unitPrice }
+    }))
+})
+
+function onBranchChange() {
+  saleForm.value.service = ''
+  saleForm.value.amount = 0
+  saleItems.value = []
+  selectedInventory.value = null
+}
+
+const selectedServiceType = computed(() => {
+  const branchId = saleForm.value.branchId
+  return serviceTypes.value.find(st =>
+    st.name === saleForm.value.service && (!branchId || st.branchId === branchId)
+  ) || null
+})
+
+const unitLabel = computed(() => {
+  const unit = selectedServiceType.value?.unit
+  return unit ? `Unit (${unit})` : 'Unit'
+})
+
+function recomputeAmount() {
+  const serviceType = selectedServiceType.value
+  if (!serviceType) return
+  const min = Number(serviceType.minimumPerUnit) > 1 ? Number(serviceType.minimumPerUnit) : 1
+  const price = Number(serviceType.price) || 0
+  const units = Number(saleForm.value.weight) || 0
+  saleForm.value.amount = Number(((price * units) / min).toFixed(2))
+}
+
+function onServiceChange() {
+  const serviceType = selectedServiceType.value
+  saleForm.value.weight = serviceType ? (Number(serviceType.minimumPerUnit) || 1) : 0
+  saleForm.value.amount = serviceType ? serviceType.price : 0
+}
+
+const overallTotal = computed(() =>
+  Number(saleForm.value.amount || 0) +
+  saleItems.value.reduce((sum, item) => sum + Number(item.price || 0), 0)
+)
+
+const groupedSaleItems = computed(() => {
+  const groups = {}
+  saleItems.value.forEach(item => {
+    if (!groups[item.name]) {
+      groups[item.name] = { name: item.name, count: 1, price: item.price }
+    } else {
+      groups[item.name].count++
+    }
+  })
+  return Object.values(groups)
+})
+
+function addInventoryItem() {
+  if (!selectedInventory.value) return
+  saleItems.value.push({ ...selectedInventory.value })
+  selectedInventory.value = null
+}
+
+function removeInventoryItem(name) {
+  const idx = saleItems.value.findIndex(item => item.name === name)
+  if (idx !== -1) {
+    saleItems.value.splice(idx, 1)
+  }
+}
 
 function editSale(sale) {
   editingSale.value = sale
@@ -410,35 +588,59 @@ function editSale(sale) {
     amount: sale.amount,
     weight: sale.weight,
     status: sale.status,
+    paymentStatus: sale.paymentStatus,
+    paymentType: sale.paymentType,
     notes: sale.notes
   }
+  saleItems.value = Array.isArray(sale.items) ? sale.items.map(item => ({ ...item })) : []
   showAddDialog.value = true
 }
 
 async function handleSaveSale() {
   loading.value = true
   try {
-    if (editingSale.value) {
-      await updateDoc(doc(db, 'sales', editingSale.value.id), {
+    const isEditing = !!editingSale.value
+    let writePromise
+
+    if (isEditing) {
+      writePromise = updateDoc(doc(db, 'sales', editingSale.value.id), {
         ...saleForm.value,
+        items: saleItems.value,
+        total: overallTotal.value,
         updatedAt: new Date()
       })
-      $q.notify({
-        type: 'positive',
-        message: 'Sale updated successfully!'
-      })
     } else {
-      await addDoc(collection(db, 'sales'), {
+      writePromise = addDoc(collection(db, 'sales'), {
         ...saleForm.value,
+        items: saleItems.value,
+        total: overallTotal.value,
         createdBy: userStore.user.uid,
         createdAt: new Date(),
         updatedAt: new Date()
       })
+    }
+
+    writePromise.catch(err => console.warn('Queued sale failed to sync:', err))
+
+    // If the server doesn't confirm within 3s, the write is queued locally
+    // (IndexedDB) and will upload automatically when internet is available.
+    const result = await Promise.race([
+      writePromise.then(() => 'synced'),
+      new Promise(resolve => setTimeout(() => resolve('queued'), 3000))
+    ])
+
+    if (result === 'synced') {
       $q.notify({
         type: 'positive',
-        message: 'Sale added successfully!'
+        message: isEditing ? 'Sale updated successfully!' : 'Sale added successfully!'
+      })
+    } else {
+      $q.notify({
+        type: 'warning',
+        message: 'No internet detected. Sale saved locally and will upload automatically when back online.'
       })
     }
+
     showAddDialog.value = false
     editingSale.value = null
     resetForm()
@@ -476,6 +678,12 @@ function deleteSale(id) {
   })
 }
 
+function openAddDialog() {
+  editingSale.value = null
+  resetForm()
+  showAddDialog.value = true
+}
+
 function resetForm() {
   saleForm.value = {
     branchId: '',
@@ -485,14 +693,37 @@ function resetForm() {
     amount: 0,
     weight: 0,
     status: 'Pending',
+    paymentStatus: 'Unpaid',
+    paymentType: 'Cash',
     notes: ''
   }
+  saleItems.value = []
+  selectedInventory.value = null
 }
 
 function printSale(sale) {
   const branch = branches.value.find(b => b.id === sale.branchId) || {}
   const addressLine = branch.address ? '<div>' + branch.address + '</div>' : ''
   const phoneLine = branch.phone ? '<div>' + branch.phone + '</div>' : ''
+
+  const items = Array.isArray(sale.items) ? sale.items : []
+  const itemGroups = {}
+  items.forEach(item => {
+    if (!itemGroups[item.name]) {
+      itemGroups[item.name] = { name: item.name, count: 1, price: Number(item.price || 0) }
+    } else {
+      itemGroups[item.name].count++
+    }
+  })
+  const itemsTotal = items.reduce((sum, item) => sum + Number(item.price || 0), 0)
+  const itemRows = Object.values(itemGroups)
+    .map(group => `<div class="row"><span>${group.name} x ${group.count}</span><span>${formatCurrency(group.price * group.count)}</span></div>`)
+    .join('')
+  const itemsSection = itemRows
+    ? `<div class="line"></div>
+        <div class="bold">Items</div>
+        ${itemRows}`
+    : ''
   const printContent = `
     <!DOCTYPE html>
     <html>
@@ -510,6 +741,7 @@ function printSale(sale) {
       </head>
       <body onload="window.print(); window.onafterprint = () => window.close()">
         <div class="center">
+          <img src="${window.location.origin}/logoPrint.png" alt="Logo" style="width: 20mm; height: auto; margin-bottom: 2mm;" />
           <div class="bold" style="font-size: 16px;">${branch.name || 'Yoonek Laundry'}</div>
           ${addressLine}
           ${phoneLine}
@@ -523,15 +755,20 @@ function printSale(sale) {
         <div class="row"><span>Amount:</span><span>${formatCurrency(sale.amount)}</span></div>
         <div class="row"><span>Weight:</span><span>${sale.weight || 0} kg</span></div>
         <div class="row"><span>Status:</span><span>${sale.status}</span></div>
+        ${itemsSection}
+        <div class="line"></div>
+        <div class="row bold"><span>Total:</span><span>${formatCurrency(Number(sale.amount || 0) + itemsTotal)}</span></div>
         <div class="line"></div>
         <div class="center">Thank you!</div>
       </body>
     </html>
   `
-  const printWindow = window.open('', '_blank', 'width=300,height=600')
+  const printWindow = window.open('', '_blank', `left=0,top=0,width=${screen.availWidth},height=${screen.availHeight}`)
   if (printWindow) {
     printWindow.document.write(printContent)
     printWindow.document.close()
+    printWindow.moveTo(0, 0)
+    printWindow.resizeTo(screen.availWidth, screen.availHeight)
     printWindow.focus()
   }
 }
@@ -594,6 +831,8 @@ onMounted(() => {
   }
 
   loadBranches()
+  loadServiceTypes()
+  loadInventory()
   loadSales()
 })
 </script>

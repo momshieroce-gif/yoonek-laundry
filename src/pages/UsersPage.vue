@@ -6,6 +6,14 @@
         <div class="page-title">Users</div>
         <div class="page-subtitle">Manage staff accounts and branch assignments</div>
       </div>
+      <q-btn
+        label="Add User"
+        icon="person_add"
+        rounded
+        unelevated
+        class="add-btn"
+        @click="openAddDialog"
+      />
     </div>
 
     <!-- Users table -->
@@ -39,6 +47,110 @@
         </template>
       </q-table>
     </q-card>
+
+    <!-- Add User Dialog -->
+    <q-dialog v-model="showAddDialog" class="user-dialog">
+      <q-card class="dialog-card">
+        <q-card-section>
+          <div class="dialog-title">Add User</div>
+          <div class="dialog-subtitle">Create a new staff account and send verification email</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-form @submit="handleAddUser" class="q-gutter-md">
+            <q-input
+              v-model="newUserForm.displayName"
+              label="Display Name"
+              outlined
+              dense
+              class="user-input"
+            >
+              <template v-slot:prepend>
+                <q-icon name="person" color="pink-5" />
+              </template>
+            </q-input>
+            <q-input
+              v-model="newUserForm.email"
+              label="Email"
+              type="email"
+              outlined
+              dense
+              class="user-input"
+            >
+              <template v-slot:prepend>
+                <q-icon name="email" color="pink-5" />
+              </template>
+            </q-input>
+            <q-input
+              v-model="newUserForm.phone"
+              label="Phone Number"
+              outlined
+              dense
+              class="user-input"
+            >
+              <template v-slot:prepend>
+                <q-icon name="phone" color="pink-5" />
+              </template>
+            </q-input>
+            <div class="row q-col-gutter-md">
+              <div class="col-6">
+                <q-select
+                  v-model="newUserForm.roleId"
+                  label="Role"
+                  :options="roleOptions"
+                  outlined
+                  dense
+                  emit-value
+                  map-options
+                  class="user-input"
+                />
+              </div>
+              <div class="col-6">
+                <q-select
+                  v-model="newUserForm.branchId"
+                  label="Assigned Branch"
+                  :options="branchOptions"
+                  outlined
+                  dense
+                  clearable
+                  emit-value
+                  map-options
+                  class="user-input"
+                />
+              </div>
+            </div>
+            <q-input
+              v-model="newUserForm.password"
+              label="Temporary Password"
+              type="password"
+              outlined
+              dense
+              class="user-input"
+            >
+              <template v-slot:prepend>
+                <q-icon name="lock" color="pink-5" />
+              </template>
+            </q-input>
+            <q-input
+              v-model="newUserForm.confirmPassword"
+              label="Confirm Password"
+              type="password"
+              outlined
+              dense
+              class="user-input"
+            >
+              <template v-slot:prepend>
+                <q-icon name="lock" color="pink-5" />
+              </template>
+            </q-input>
+            <div class="row justify-end q-mt-md">
+              <q-btn flat rounded label="Cancel" v-close-popup class="cancel-btn q-mr-sm" />
+              <q-btn type="submit" rounded unelevated label="Create & Send Verification" class="save-btn" :loading="adding" />
+            </div>
+          </q-form>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
 
     <!-- Edit User Dialog -->
     <q-dialog v-model="showEditDialog" class="user-dialog">
@@ -159,8 +271,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, auth, collection, getDocs, doc, updateDoc } from '../boot/firebase'
-import { sendPasswordResetEmail } from 'firebase/auth'
+import { db, auth, app, collection, getDocs, doc, setDoc, updateDoc, serverTimestamp } from '../boot/firebase'
+import { sendPasswordResetEmail, createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth'
+import { getApp, initializeApp } from 'firebase/app'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
@@ -181,6 +294,18 @@ const users = ref([])
 const branches = ref([])
 const showEditDialog = ref(false)
 const editingUser = ref(null)
+
+const showAddDialog = ref(false)
+const adding = ref(false)
+const newUserForm = ref({
+  displayName: '',
+  email: '',
+  phone: '',
+  roleId: 'staff',
+  branchId: '',
+  password: '',
+  confirmPassword: ''
+})
 
 const userForm = ref({
   displayName: '',
@@ -250,6 +375,19 @@ async function loadUsers() {
   }
 }
 
+function openAddDialog() {
+  newUserForm.value = {
+    displayName: '',
+    email: '',
+    phone: '',
+    roleId: 'staff',
+    branchId: '',
+    password: '',
+    confirmPassword: ''
+  }
+  showAddDialog.value = true
+}
+
 function editUser(user) {
   editingUser.value = user
   userForm.value = {
@@ -294,6 +432,79 @@ async function handleSaveUser() {
   }
 }
 
+async function handleAddUser() {
+  if (newUserForm.value.password !== newUserForm.value.confirmPassword) {
+    $q.notify({
+      type: 'negative',
+      message: 'Passwords do not match'
+    })
+    return
+  }
+
+  adding.value = true
+  try {
+    let secondaryApp
+    try {
+      secondaryApp = getApp('UserCreation')
+    } catch (e) {
+      secondaryApp = initializeApp(app.options, 'UserCreation')
+    }
+    const secondaryAuth = getAuth(secondaryApp)
+
+    const credential = await createUserWithEmailAndPassword(secondaryAuth, newUserForm.value.email, newUserForm.value.password)
+
+    const idToken = await credential.user.getIdToken()
+    const apiKey = app.options.apiKey
+    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestType: 'VERIFY_EMAIL', idToken })
+    })
+
+    if (!response.ok) {
+      const data = await response.json()
+      throw new Error(data.error?.message || 'Failed to send verification email')
+    }
+
+    await setDoc(doc(db, 'users', credential.user.uid), {
+      displayName: newUserForm.value.displayName,
+      email: newUserForm.value.email,
+      phone: newUserForm.value.phone,
+      roleId: newUserForm.value.roleId,
+      branchId: newUserForm.value.branchId,
+      status: 'pending',
+      emailVerified: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
+
+    $q.notify({
+      type: 'positive',
+      message: 'User created and verification email sent'
+    })
+
+    showAddDialog.value = false
+    newUserForm.value = {
+      displayName: '',
+      email: '',
+      phone: '',
+      roleId: 'staff',
+      branchId: '',
+      password: '',
+      confirmPassword: ''
+    }
+    await loadUsers()
+    await signOut(secondaryAuth)
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to create user: ' + error.message
+    })
+  } finally {
+    adding.value = false
+  }
+}
+
 async function sendResetEmail() {
   if (!userForm.value.email) return
   resetting.value = true
@@ -326,6 +537,9 @@ onMounted(async () => {
 }
 
 .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 12px 4px;
 }
 
@@ -454,5 +668,13 @@ onMounted(async () => {
 .save-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 14px 36px rgba(233, 30, 140, 0.45);
+}
+
+.add-btn {
+  background: linear-gradient(135deg, #E91E8C 0%, #FF69B4 100%);
+  color: white;
+  font-weight: 700;
+  padding: 0 22px;
+  box-shadow: 0 10px 28px rgba(233, 30, 140, 0.35);
 }
 </style>

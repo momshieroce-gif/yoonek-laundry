@@ -213,7 +213,7 @@
               class="inventory-input"
             >
               <template v-slot:prepend>
-                <q-icon name="attach_money" color="pink-5" />
+                <q-icon name="fa-solid fa-peso-sign" color="pink-5" />
               </template>
             </q-input>
             <q-input

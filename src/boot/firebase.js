@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from 'firebase/auth'
-import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp } from 'firebase/firestore'
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setLogLevel, enableNetwork, disableNetwork, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: "AIzaSyCsv9YAbuQ8uwYLzjBkYXt3IIbl3RWKsRE",
@@ -15,7 +15,23 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 const auth = getAuth(app)
-const db = getFirestore(app)
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+})
+
+setLogLevel('error')
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('offline', () => {
+    disableNetwork(db).catch(() => {})
+  })
+  window.addEventListener('online', () => {
+    enableNetwork(db).catch(() => {})
+  })
+  if (!navigator.onLine) {
+    disableNetwork(db).catch(() => {})
+  }
+}
 
 const googleProvider = new GoogleAuthProvider()
 
