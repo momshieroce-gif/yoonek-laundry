@@ -28,6 +28,8 @@
     "autoprefixer": "^10.4.14",
     "concurrently": "^8.2.0",
     "cors": "^2.8.5",
+    "electron": "^43.2.0",
+    "electron-packager": "^17.1.2",
     "eslint": "^8.45.0",
     "eslint-config-prettier": "^8.8.0",
     "eslint-plugin-vue": "^9.15.1",

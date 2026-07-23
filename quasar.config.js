@@ -43,6 +43,11 @@ module.exports = configure(function (ctx) {
       vueRouterMode: 'history'
     },
 
+    sourceFiles: {
+      electronMain: 'src-electron/electron-main.js',
+      electronPreload: 'src-electron/electron-preload.js'
+    },
+
     devServer: {
       open: true
     },

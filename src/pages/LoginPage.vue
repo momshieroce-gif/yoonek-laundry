@@ -7,7 +7,7 @@
     <div class="login-wrap row no-wrap">
       <!-- Left brand panel -->
       <div class="brand-panel col-7 flex items-end justify-center q-ml-md">
-          <img src="/logo.png" alt="Yoonek Laundry" class="brand-logo q-mb-lg" />
+          <img src="logo.png" alt="Yoonek Laundry" class="brand-logo q-mb-lg" />
       </div>
 
       <!-- Right form panel -->
