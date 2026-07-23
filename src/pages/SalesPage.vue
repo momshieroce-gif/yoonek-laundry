@@ -323,7 +323,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where, orderBy } from '../boot/firebase'
+import { db, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where, orderBy, increment } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -640,6 +640,19 @@ async function handleSaveSale() {
         message: 'No internet detected. Sale saved locally and will upload automatically when back online.'
       })
     }
+
+    // Deduct selected inventory quantities from stock
+    const branchId = saleForm.value.branchId
+    groupedSaleItems.value.forEach(group => {
+      const invItem = inventory.value.find(inv => inv.name === group.name && inv.branchId === branchId)
+      if (invItem) {
+        invItem.quantity = Math.max(0, invItem.quantity - group.count)
+        updateDoc(doc(db, 'inventory', invItem.id), {
+          quantity: increment(-group.count),
+          updatedAt: new Date()
+        }).catch(err => console.warn('Inventory deduction failed for', group.name, err))
+      }
+    })
 
     showAddDialog.value = false
     editingSale.value = null

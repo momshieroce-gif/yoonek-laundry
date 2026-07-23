@@ -670,15 +670,12 @@ async function seedDatabase() {
 
     // Seed Inventory
     console.log('Seeding inventory...');
-    const categories = ['Detergent', 'Fabric Softener', 'Bleach', 'Hangers', 'Packaging', 'Equipment', 'Other'];
+  
     const items = [
-      { name: 'Premium Detergent', category: 'Detergent', quantity: 50, minStock: 10, unitPrice: 15.99, supplier: 'CleanCo Supplies' },
-      { name: 'Fabric Softener', category: 'Fabric Softener', quantity: 30, minStock: 8, unitPrice: 12.50, supplier: 'CleanCo Supplies' },
-      { name: 'Color-Safe Bleach', category: 'Bleach', quantity: 20, minStock: 5, unitPrice: 8.99, supplier: 'ChemCorp' },
-      { name: 'Plastic Hangers', category: 'Hangers', quantity: 500, minStock: 100, unitPrice: 0.25, supplier: 'Packaging Pro' },
-      { name: 'Garment Bags', category: 'Packaging', quantity: 200, minStock: 50, unitPrice: 0.50, supplier: 'Packaging Pro' },
-      { name: 'Industrial Iron', category: 'Equipment', quantity: 5, minStock: 2, unitPrice: 299.99, supplier: 'Equipment World' },
-      { name: 'Stain Remover', category: 'Other', quantity: 25, minStock: 10, unitPrice: 18.99, supplier: 'CleanCo Supplies' }
+      { name: 'DETERGENT', quantity: 30, minStock: 10, unitPrice: 16 },
+      { name: 'DOWNY', quantity: 30, minStock: 8, unitPrice: 8 },
+      { name: 'ZONROX', quantity: 30, minStock: 8, unitPrice: 8 },
+      { name: 'PLASTIC', quantity: 30, minStock: 8, unitPrice: 2 }
     ];
 
     for (const item of items) {
@@ -686,7 +683,6 @@ async function seedDatabase() {
         await db.collection('inventory').add({
           ...item,
           branchId: branchId,
-          location: 'Main Storage',
           notes: 'Regular stock item',
           createdBy: 'admin-user-1',
           createdAt: new Date(),

@@ -47,17 +47,6 @@
             class="inventory-input"
           />
         </div>
-        <div class="col-12 col-sm-4">
-          <q-select
-            v-model="selectedCategory"
-            label="Category"
-            :options="categoryOptions"
-            outlined
-            dense
-            clearable
-            class="inventory-input"
-          />
-        </div>
       </div>
     </q-card>
 
@@ -161,15 +150,6 @@
                 <q-icon name="label" color="pink-5" />
               </template>
             </q-input>
-            <q-select
-              v-model="itemForm.category"
-              label="Category"
-              :options="categoryOptions"
-              outlined
-              dense
-              class="inventory-input"
-              :rules="[val => !!val || 'Category is required']"
-            />
             <div class="row q-col-gutter-md">
               <div class="col-6">
                 <q-input
@@ -320,11 +300,9 @@ const adjustmentType = ref('add')
 const stockAdjustment = ref(0)
 const searchText = ref('')
 const selectedBranch = ref('')
-const selectedCategory = ref('')
 
 const inventoryColumns = [
   { name: 'name', label: 'Item Name', field: 'name', align: 'left', sortable: true },
-  { name: 'category', label: 'Category', field: 'category', align: 'left' },
   { name: 'quantity', label: 'Quantity', field: 'quantity', align: 'center' },
   { name: 'minStock', label: 'Min Stock', field: 'minStock', align: 'center' },
   { name: 'unitPrice', label: 'Unit Price', field: 'unitPrice', align: 'right' },
@@ -334,7 +312,6 @@ const inventoryColumns = [
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
 
-const categoryOptions = ['Detergent', 'Fabric Softener', 'Bleach', 'Hangers', 'Packaging', 'Equipment', 'Other']
 
 const branchOptions = computed(() => 
   branches.value.map(branch => ({
@@ -348,19 +325,14 @@ const filteredInventory = computed(() => {
 
   if (searchText.value) {
     const search = searchText.value.toLowerCase()
-    result = result.filter(item => 
+    result = result.filter(item =>
       item.name.toLowerCase().includes(search) ||
-      item.category.toLowerCase().includes(search) ||
-      item.supplier.toLowerCase().includes(search)
+      (item.supplier || '').toLowerCase().includes(search)
     )
   }
 
   if (selectedBranch.value) {
     result = result.filter(item => item.branchId === selectedBranch.value)
-  }
-
-  if (selectedCategory.value) {
-    result = result.filter(item => item.category === selectedCategory.value)
   }
 
   return result
@@ -408,7 +380,6 @@ function getStockStatusColor(item) {
 const itemForm = ref({
   branchId: '',
   name: '',
-  category: '',
   quantity: 0,
   minStock: 10,
   unitPrice: 0,
@@ -422,7 +393,6 @@ function editItem(item) {
   itemForm.value = {
     branchId: item.branchId,
     name: item.name,
-    category: item.category,
     quantity: item.quantity,
     minStock: item.minStock,
     unitPrice: item.unitPrice,
@@ -534,7 +504,6 @@ function resetForm() {
   itemForm.value = {
     branchId: '',
     name: '',
-    category: '',
     quantity: 0,
     minStock: 10,
     unitPrice: 0,
