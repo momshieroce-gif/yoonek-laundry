@@ -24,6 +24,7 @@ const routes = [
       { path: 'branches', component: () => import('pages/BranchesPage.vue') },
       { path: 'sales', component: () => import('pages/SalesPage.vue') },
       { path: 'inventory', component: () => import('pages/InventoryPage.vue') },
+      { path: 'inventory-transactions', component: () => import('pages/InventoryTransactionsPage.vue') },
       { path: 'sale-items', component: () => import('pages/SaleItemPage.vue') },
       { path: 'users', component: () => import('pages/UsersPage.vue'), meta: { adminOnly: true } },
       { path: 'attendance', component: () => import('pages/AttendancePage.vue') }

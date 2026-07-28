@@ -323,7 +323,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where, orderBy, increment } from '../boot/firebase'
+import { db, collection, getDocs, addDoc, setDoc, updateDoc, deleteDoc, doc, query, where, orderBy } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -602,15 +602,19 @@ async function handleSaveSale() {
     const isEditing = !!editingSale.value
     let writePromise
 
+    const saleDocRef = isEditing
+      ? doc(db, 'sales', editingSale.value.id)
+      : doc(collection(db, 'sales'))
+
     if (isEditing) {
-      writePromise = updateDoc(doc(db, 'sales', editingSale.value.id), {
+      writePromise = updateDoc(saleDocRef, {
         ...saleForm.value,
         items: saleItems.value,
         total: overallTotal.value,
         updatedAt: new Date()
       })
     } else {
-      writePromise = addDoc(collection(db, 'sales'), {
+      writePromise = setDoc(saleDocRef, {
         ...saleForm.value,
         items: saleItems.value,
         total: overallTotal.value,
@@ -641,18 +645,39 @@ async function handleSaveSale() {
       })
     }
 
-    // Deduct selected inventory quantities from stock
-    const branchId = saleForm.value.branchId
-    groupedSaleItems.value.forEach(group => {
-      const invItem = inventory.value.find(inv => inv.name === group.name && inv.branchId === branchId)
-      if (invItem) {
-        invItem.quantity = Math.max(0, invItem.quantity - group.count)
-        updateDoc(doc(db, 'inventory', invItem.id), {
-          quantity: increment(-group.count),
+    // Deduct selected inventory quantities from stock and record stock out transactions
+    const wasCompleted = editingSale.value?.status === 'Completed'
+    if (saleForm.value.status === 'Completed' && !wasCompleted) {
+      const branchId = saleForm.value.branchId
+      const saleBranch = branches.value.find(b => b.id === branchId)
+      groupedSaleItems.value.forEach(group => {
+        const invItem = inventory.value.find(inv => inv.name === group.name && inv.branchId === branchId)
+        if (invItem) {
+          const current = Number(invItem.currentStock) || 0
+          const newStock = Math.max(0, current - group.count)
+          invItem.currentStock = newStock
+          updateDoc(doc(db, 'inventory', invItem.id), {
+            currentStock: newStock,
+            updatedAt: new Date()
+          }).catch(err => console.warn('Inventory deduction failed for', group.name, err))
+        }
+
+        addDoc(collection(db, 'inventory_transactions'), {
+          branchId,
+          branchName: saleBranch ? saleBranch.name : 'Unknown Branch',
+          saleId: saleDocRef.id,
+          inventoryItemId: invItem ? invItem.id : '',
+          inventoryItemName: group.name,
+          transactionType: 'Stock Out',
+          quantity: group.count,
+          date: new Date().toISOString().split('T')[0],
+          notes: 'From Sales',
+          createdBy: userStore.user.uid,
+          createdAt: new Date(),
           updatedAt: new Date()
-        }).catch(err => console.warn('Inventory deduction failed for', group.name, err))
-      }
-    })
+        }).catch(err => console.warn('Failed to create stock out transaction for', group.name, err))
+      })
+    }
 
     showAddDialog.value = false
     editingSale.value = null
@@ -676,6 +701,10 @@ function deleteSale(id) {
     persistent: true
   }).onOk(async () => {
     try {
+      const inventoryQuery = query(collection(db, 'inventory_transactions'), where('saleId', '==', id))
+      const snapshot = await getDocs(inventoryQuery)
+      const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'inventory_transactions', d.id)))
+      await Promise.all(deletePromises)
       await deleteDoc(doc(db, 'sales', id))
       $q.notify({
         type: 'positive',

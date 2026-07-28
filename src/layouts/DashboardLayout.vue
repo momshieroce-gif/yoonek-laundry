@@ -109,6 +109,20 @@
             <q-item-label>Inventory</q-item-label>
           </q-item-section>
         </q-item>
+
+        <q-item
+          clickable
+          v-ripple
+          @click="navigateTo('inventory-transactions')"
+          :class="['sidebar-item', isActiveRoute('inventory-transactions') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="inventory_2" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Inventory Transactions</q-item-label>
+          </q-item-section>
+        </q-item>
         
         <q-item
           v-if="userStore.isAdmin"

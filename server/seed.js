@@ -58,6 +58,7 @@ async function seedDatabase() {
     await resetCollection('service_types');
     await resetCollection('sales');
     await resetCollection('inventory');
+    await resetCollection('inventory_transactions');
     await resetCollection('attendance');
 
     // Seed Users
@@ -668,9 +669,9 @@ async function seedDatabase() {
     }
     console.log(`Created ${sales.length} sales records`);
 
-    // Seed Inventory
-    console.log('Seeding inventory...');
-  
+    // Seed Inventory Transactions
+    console.log('Seeding inventory_transactions...');
+
     const items = [
       { name: 'DETERGENT', quantity: 30, minStock: 10, unitPrice: 16 },
       { name: 'DOWNY', quantity: 30, minStock: 8, unitPrice: 8 },
@@ -678,11 +679,41 @@ async function seedDatabase() {
       { name: 'PLASTIC', quantity: 30, minStock: 8, unitPrice: 2 }
     ];
 
+    const seededTransactions = [];
     for (const item of items) {
       for (const branchId of branchIds) {
-        await db.collection('inventory').add({
-          ...item,
+        const transactionData = {
+          inventoryItemName: item.name,
           branchId: branchId,
+          transactionType: 'Stock In',
+          quantity: item.quantity,
+          date: new Date().toISOString().split('T')[0],
+          notes: 'Initial stock',
+          createdBy: 'admin-user-1',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        const docRef = await db.collection('inventory_transactions').add(transactionData);
+        seededTransactions.push({ id: docRef.id, ...transactionData });
+      }
+    }
+    console.log(`Created ${seededTransactions.length} inventory transaction records`);
+
+    // Seed Inventory
+    console.log('Seeding inventory...');
+
+    for (const item of items) {
+      for (const branchId of branchIds) {
+        const matchedTransaction = seededTransactions.find(
+          t => t.inventoryItemName === item.name && t.branchId === branchId
+        );
+        await db.collection('inventory').add({
+          name: item.name,
+          minStock: item.minStock,
+          unitPrice: item.unitPrice,
+          currentStock: parseInt(item.quantity, 10),
+          branchId: branchId,
+          inventoryTransactionId: matchedTransaction ? matchedTransaction.id : null,
           notes: 'Regular stock item',
           createdBy: 'admin-user-1',
           createdAt: new Date(),

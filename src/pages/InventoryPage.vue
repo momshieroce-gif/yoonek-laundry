@@ -6,14 +6,6 @@
         <div class="page-title">Inventory</div>
         <div class="page-subtitle">Manage stock levels and supplies</div>
       </div>
-      <q-btn
-        label="Add Item"
-        icon="add"
-        rounded
-        unelevated
-        class="add-btn"
-        @click="showAddDialog = true"
-      />
     </div>
 
     <!-- Filters -->
@@ -60,14 +52,14 @@
         :loading="loading"
         :pagination="{ rowsPerPage: 10 }"
       >
-        <template v-slot:body-cell-quantity="props">
+        <template v-slot:body-cell-currentStock="props">
           <q-td :props="props">
             <q-badge
               rounded
               class="quantity-badge"
-              :class="props.row.quantity <= props.row.minStock ? 'badge-negative' : 'badge-positive'"
+              :class="props.row.currentStock <= props.row.minStock ? 'badge-negative' : 'badge-positive'"
             >
-              {{ props.row.quantity }}
+              {{ props.row.currentStock }}
             </q-badge>
           </q-td>
         </template>
@@ -84,33 +76,9 @@
               flat
               round
               dense
-              icon="add"
-              class="action-add"
-              @click="adjustStock(props.row, 'add')"
-            />
-            <q-btn
-              flat
-              round
-              dense
-              icon="remove"
-              class="action-remove"
-              @click="adjustStock(props.row, 'remove')"
-            />
-            <q-btn
-              flat
-              round
-              dense
-              icon="edit"
+              icon="visibility"
               class="action-edit"
-              @click="editItem(props.row)"
-            />
-            <q-btn
-              flat
-              round
-              dense
-              icon="delete"
-              class="action-delete"
-              @click="deleteItem(props.row.id)"
+              @click="viewItem(props.row)"
             />
           </q-td>
         </template>
@@ -121,12 +89,12 @@
     <q-dialog v-model="showAddDialog" class="inventory-dialog">
       <q-card class="dialog-card">
         <q-card-section>
-          <div class="dialog-title">{{ editingItem ? 'Edit Item' : 'Add New Item' }}</div>
-          <div class="dialog-subtitle">Enter the item details below</div>
+          <div class="dialog-title">View Item</div>
+          <div class="dialog-subtitle">Item details</div>
         </q-card-section>
 
         <q-card-section>
-          <q-form @submit="handleSaveItem" class="q-gutter-md">
+          <q-form class="q-gutter-md">
             <q-select
               v-model="itemForm.branchId"
               label="Branch"
@@ -136,31 +104,34 @@
               emit-value
               map-options
               class="inventory-input"
-              :rules="[val => !!val || 'Branch is required']"
+              disable
             />
-            <q-input
+            <q-select
               v-model="itemForm.name"
               label="Item Name"
+              :options="itemNameOptions"
               outlined
               dense
+              emit-value
+              map-options
               class="inventory-input"
-              :rules="[val => !!val || 'Item name is required']"
+              disable
             >
               <template v-slot:prepend>
                 <q-icon name="label" color="pink-5" />
               </template>
-            </q-input>
-            <div class="row q-col-gutter-md">
+            </q-select>
+            <div class="row q-col-gutter-md q-mt-sm">
               <div class="col-6">
                 <q-input
-                  v-model.number="itemForm.quantity"
-                  label="Quantity"
+                  v-model.number="itemForm.currentStock"
+                  label="Current Stock"
                   type="number"
                   outlined
                   dense
                   class="inventory-input"
                   style="margin-left: 15px"
-                  :rules="[val => val >= 0 || 'Quantity must be non-negative']"
+                  disable
                 >
                   <template v-slot:prepend>
                     <q-icon name="inventory_2" color="pink-5" />
@@ -175,7 +146,7 @@
                   outlined
                   dense
                   class="inventory-input"
-                  :rules="[val => val >= 0 || 'Minimum stock must be non-negative']"
+                  disable
                 >
                   <template v-slot:prepend>
                     <q-icon name="warning" color="pink-5" />
@@ -191,31 +162,10 @@
               dense
               step="0.01"
               class="inventory-input"
+              disable
             >
               <template v-slot:prepend>
                 <q-icon name="fa-solid fa-peso-sign" color="pink-5" />
-              </template>
-            </q-input>
-            <q-input
-              v-model="itemForm.supplier"
-              label="Supplier"
-              outlined
-              dense
-              class="inventory-input"
-            >
-              <template v-slot:prepend>
-                <q-icon name="business" color="pink-5" />
-              </template>
-            </q-input>
-            <q-input
-              v-model="itemForm.location"
-              label="Storage Location"
-              outlined
-              dense
-              class="inventory-input"
-            >
-              <template v-slot:prepend>
-                <q-icon name="place" color="pink-5" />
               </template>
             </q-input>
             <q-input
@@ -226,42 +176,10 @@
               dense
               rows="3"
               class="inventory-input"
+              disable
             />
             <div class="row justify-end q-mt-md">
-              <q-btn flat rounded label="Cancel" v-close-popup class="cancel-btn q-mr-sm" />
-              <q-btn type="submit" rounded unelevated label="Save" class="save-btn" :loading="loading" />
-            </div>
-          </q-form>
-        </q-card-section>
-      </q-card>
-    </q-dialog>
-
-    <!-- Stock Adjustment Dialog -->
-    <q-dialog v-model="showStockDialog" class="inventory-dialog">
-      <q-card class="dialog-card stock-dialog-card">
-        <q-card-section>
-          <div class="dialog-title">Adjust Stock</div>
-          <div class="dialog-subtitle">{{ adjustmentType === 'add' ? 'Add quantity to stock' : 'Remove quantity from stock' }}</div>
-        </q-card-section>
-
-        <q-card-section>
-          <q-form @submit="handleStockAdjustment" class="q-gutter-md">
-            <q-input
-              v-model.number="stockAdjustment"
-              :label="adjustmentType === 'add' ? 'Quantity to Add' : 'Quantity to Remove'"
-              type="number"
-              outlined
-              dense
-              class="inventory-input"
-              :rules="[val => val > 0 || 'Quantity must be positive']"
-            >
-              <template v-slot:prepend>
-                <q-icon :name="adjustmentType === 'add' ? 'add' : 'remove'" color="pink-5" />
-              </template>
-            </q-input>
-            <div class="row justify-end q-mt-md">
-              <q-btn flat rounded label="Cancel" v-close-popup class="cancel-btn q-mr-sm" />
-              <q-btn type="submit" rounded unelevated label="Confirm" class="save-btn" :loading="loading" />
+              <q-btn flat rounded label="Close" v-close-popup class="cancel-btn" />
             </div>
           </q-form>
         </q-card-section>
@@ -274,7 +192,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from '../boot/firebase'
+import { db, collection, getDocs } from '../boot/firebase'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
@@ -292,33 +210,36 @@ onMounted(async () => {
 const loading = ref(false)
 const inventory = ref([])
 const branches = ref([])
+const transactions = ref([])
 const showAddDialog = ref(false)
-const showStockDialog = ref(false)
-const editingItem = ref(null)
-const selectedItem = ref(null)
-const adjustmentType = ref('add')
-const stockAdjustment = ref(0)
 const searchText = ref('')
 const selectedBranch = ref('')
 
 const inventoryColumns = [
   { name: 'name', label: 'Item Name', field: 'name', align: 'left', sortable: true },
-  { name: 'quantity', label: 'Quantity', field: 'quantity', align: 'center' },
+  { name: 'currentStock', label: 'Current Stock', field: 'currentStock', align: 'center' },
   { name: 'minStock', label: 'Min Stock', field: 'minStock', align: 'center' },
   { name: 'unitPrice', label: 'Unit Price', field: 'unitPrice', align: 'right' },
-  { name: 'supplier', label: 'Supplier', field: 'supplier', align: 'left' },
-  { name: 'location', label: 'Location', field: 'location', align: 'left' },
   { name: 'status', label: 'Status', field: 'status', align: 'center' },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
 
 
-const branchOptions = computed(() => 
-  branches.value.map(branch => ({
-    label: branch.name,
-    value: branch.id
-  }))
-)
+const branchOptions = computed(() => {
+  const branchIds = [...new Set(transactions.value.map(t => t.branchId))]
+  return branchIds.map(id => {
+    const branch = branches.value.find(b => b.id === id)
+    return {
+      label: branch ? branch.name : id,
+      value: id
+    }
+  })
+})
+
+const itemNameOptions = computed(() => {
+  const names = [...new Set(transactions.value.map(t => t.inventoryItemName))]
+  return names.map(name => ({ label: name, value: name }))
+})
 
 const filteredInventory = computed(() => {
   let result = inventory.value
@@ -326,8 +247,7 @@ const filteredInventory = computed(() => {
   if (searchText.value) {
     const search = searchText.value.toLowerCase()
     result = result.filter(item =>
-      item.name.toLowerCase().includes(search) ||
-      (item.supplier || '').toLowerCase().includes(search)
+      item.name.toLowerCase().includes(search)
     )
   }
 
@@ -344,6 +264,15 @@ async function loadBranches() {
     branches.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
   } catch (error) {
     console.error('Error loading branches:', error)
+  }
+}
+
+async function loadInventoryTransactions() {
+  try {
+    const snapshot = await getDocs(collection(db, 'inventory_transactions'))
+    transactions.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+  } catch (error) {
+    console.error('Error loading inventory transactions:', error)
   }
 }
 
@@ -366,156 +295,43 @@ async function loadInventory() {
 }
 
 function getStockStatus(item) {
-  if (item.quantity <= 0) return 'Out of Stock'
-  if (item.quantity <= item.minStock) return 'Low Stock'
+  if (item.currentStock <= 0) return 'Out of Stock'
+  if (item.currentStock <= item.minStock) return 'Low Stock'
   return 'In Stock'
 }
 
 function getStockStatusColor(item) {
-  if (item.quantity <= 0) return 'negative'
-  if (item.quantity <= item.minStock) return 'warning'
+  if (item.currentStock <= 0) return 'negative'
+  if (item.currentStock <= item.minStock) return 'warning'
   return 'positive'
 }
 
 const itemForm = ref({
   branchId: '',
   name: '',
-  quantity: 0,
+  currentStock: 0,
   minStock: 10,
   unitPrice: 0,
-  supplier: '',
-  location: '',
   notes: ''
 })
 
-function editItem(item) {
-  editingItem.value = item
+function viewItem(item) {
   itemForm.value = {
     branchId: item.branchId,
     name: item.name,
-    quantity: item.quantity,
+    currentStock: item.currentStock,
     minStock: item.minStock,
     unitPrice: item.unitPrice,
-    supplier: item.supplier,
-    location: item.location,
     notes: item.notes
   }
   showAddDialog.value = true
 }
 
-async function handleSaveItem() {
-  loading.value = true
-  try {
-    if (editingItem.value) {
-      await updateDoc(doc(db, 'inventory', editingItem.value.id), {
-        ...itemForm.value,
-        updatedAt: new Date()
-      })
-      $q.notify({
-        type: 'positive',
-        message: 'Item updated successfully!'
-      })
-    } else {
-      await addDoc(collection(db, 'inventory'), {
-        ...itemForm.value,
-        createdBy: userStore.user.uid,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-      $q.notify({
-        type: 'positive',
-        message: 'Item added successfully!'
-      })
-    }
-    showAddDialog.value = false
-    editingItem.value = null
-    resetForm()
-    await loadInventory()
-  } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to save item: ' + error.message
-    })
-  } finally {
-    loading.value = false
-  }
-}
 
-function adjustStock(item, type) {
-  selectedItem.value = item
-  adjustmentType.value = type
-  stockAdjustment.value = 0
-  showStockDialog.value = true
-}
-
-async function handleStockAdjustment() {
-  loading.value = true
-  try {
-    const newQuantity = adjustmentType.value === 'add' 
-      ? selectedItem.value.quantity + stockAdjustment.value
-      : Math.max(0, selectedItem.value.quantity - stockAdjustment.value)
-
-    await updateDoc(doc(db, 'inventory', selectedItem.value.id), {
-      quantity: newQuantity,
-      updatedAt: new Date()
-    })
-
-    $q.notify({
-      type: 'positive',
-      message: `Stock ${adjustmentType.value === 'add' ? 'added' : 'removed'} successfully!`
-    })
-
-    showStockDialog.value = false
-    await loadInventory()
-  } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to adjust stock: ' + error.message
-    })
-  } finally {
-    loading.value = false
-  }
-}
-
-function deleteItem(id) {
-  $q.dialog({
-    title: 'Delete Item',
-    message: 'Are you sure you want to delete this item?',
-    cancel: true,
-    persistent: true
-  }).onOk(async () => {
-    try {
-      await deleteDoc(doc(db, 'inventory', id))
-      $q.notify({
-        type: 'positive',
-        message: 'Item deleted successfully!'
-      })
-      await loadInventory()
-    } catch (error) {
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to delete item: ' + error.message
-      })
-    }
-  })
-}
-
-function resetForm() {
-  itemForm.value = {
-    branchId: '',
-    name: '',
-    quantity: 0,
-    minStock: 10,
-    unitPrice: 0,
-    supplier: '',
-    location: '',
-    notes: ''
-  }
-}
-
-onMounted(() => {
+onMounted(async () => {
   selectedBranch.value = userStore.userData?.branchId || ''
-  loadBranches()
+  await loadBranches()
+  await loadInventoryTransactions()
   loadInventory()
 })
 </script>
