@@ -180,16 +180,34 @@
                 <q-icon name="phone" color="pink-5" />
               </template>
             </q-input>
-            <q-select
-              v-model="saleForm.service"
-              label="Service Type"
-              :options="serviceOptions"
-              outlined
-              dense
-              class="sale-input"
-              :rules="[val => !!val || 'Service type is required']"
-              @update:model-value="onServiceChange"
-            />
+            <div class="row q-col-gutter-md items-center">
+              <div class="col-9">
+                <q-select
+                  v-model="selectedService"
+                  label="Service Type"
+                  :options="serviceOptions"
+                  outlined
+                  dense
+                  class="sale-input"
+                  option-label="label"
+                  option-value="value"
+                  emit-value
+                  map-options
+                  @update:model-value="onServiceSelect"
+                />
+              </div>
+              <div class="col-3">
+                <q-btn
+                  label="Add"
+                  icon="add"
+                  unelevated
+                  class="save-btn"
+                  @click="addService"
+                  :disable="!selectedService"
+                />
+              </div>
+            </div>
+           
             <div class="row q-col-gutter-md">
               <div class="col-6">
                 <q-input
@@ -201,7 +219,7 @@
                   dense
                   class="sale-input"
                   style="margin-left: 15px"
-                  :disable="!!saleForm.service"
+                  :disable="saleForm.services.length > 0"
                   :rules="[val => val > 0 || 'Amount must be greater than 0']"
                 >
                   <template v-slot:prepend>
@@ -217,7 +235,6 @@
                   outlined
                   dense
                   class="sale-input"
-                  :hint="selectedServiceType ? `${formatCurrency(Number(selectedServiceType.price || 0))}/${selectedServiceType.minimumPerUnit || 1} ${selectedServiceType.unit || ''}` : ''"
                   @update:model-value="recomputeAmount"
                 >
                   <template v-slot:prepend>
@@ -226,6 +243,17 @@
                 </q-input>
               </div>
             </div>
+             <q-list v-if="saleForm.services.length" class="q-mb-md">
+              <q-item v-for="(service, idx) in saleForm.services" :key="service.name + idx">
+                <q-item-section>
+                  <q-item-label>{{ service.name }} <span class="text-weight-bold">{{ formatCurrency(service.price) }}</span></q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-btn flat round dense icon="remove" color="negative" @click="removeService(idx)" />
+                </q-item-section>
+              </q-item>
+            </q-list>
+            
             <div class="row q-col-gutter-md items-center">
               <div class="col-9">
                 <q-select
@@ -344,6 +372,7 @@ const sales = ref([])
 const branches = ref([])
 const inventory = ref([])
 const selectedInventory = ref(null)
+const selectedService = ref('')
 const saleItems = ref([])
 const showAddDialog = ref(false)
 const editingSale = ref(null)
@@ -360,7 +389,13 @@ const minDate = computed(() => {
 
 const salesColumns = [
   { name: 'customerName', label: 'Customer', field: 'customerName', align: 'left' },
-  { name: 'service', label: 'Service', field: 'service', align: 'left' },
+  { name: 'service', label: 'Service', field: row => {
+    const arr = Array.isArray(row.service) ? row.service : (row.service ? [row.service] : [])
+    const names = arr.map(s => getServiceName(s))
+    if (!names.length) return ''
+    if (names.length === 1) return names[0]
+    return `${names[0]}, ...`
+  }, align: 'left' },
   { name: 'amount', label: 'Total', field: row => row.total ?? row.amount, align: 'right' },
   { name: 'weight', label: 'Weight (kg)', field: 'weight', align: 'right' },
   { name: 'status', label: 'Status', field: 'status', align: 'center' },
@@ -487,7 +522,7 @@ const saleForm = ref({
   branchId: '',
   customerName: '',
   customerPhone: '',
-  service: '',
+  services: [],
   amount: 0,
   weight: 0,
   status: 'Pending',
@@ -500,8 +535,11 @@ const serviceOptions = computed(() => {
   const branchId = saleForm.value.branchId
   return serviceTypes.value
     .filter(st => !branchId || st.branchId === branchId)
-    .map(st => st.name)
-    .sort((a, b) => a.localeCompare(b))
+    .map(st => ({
+      label: `${st.name} - ${formatCurrency(Number(st.price || 0))}`,
+      value: st.name
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
 })
 
 const inventoryOptions = computed(() => {
@@ -515,41 +553,80 @@ const inventoryOptions = computed(() => {
 })
 
 function onBranchChange() {
-  saleForm.value.service = ''
+  saleForm.value.services = []
   saleForm.value.amount = 0
   saleItems.value = []
   selectedInventory.value = null
+  selectedService.value = ''
 }
 
-const selectedServiceType = computed(() => {
-  const branchId = saleForm.value.branchId
-  return serviceTypes.value.find(st =>
-    st.name === saleForm.value.service && (!branchId || st.branchId === branchId)
-  ) || null
-})
-
 const unitLabel = computed(() => {
-  const unit = selectedServiceType.value?.unit
+  const name = selectedService.value || (saleForm.value.services.length ? saleForm.value.services[0].name : null)
+  const serviceType = name ? getServiceType(name) : null
+  const unit = serviceType?.unit
   return unit ? `Unit (${unit})` : 'Unit'
 })
 
-function recomputeAmount() {
-  const serviceType = selectedServiceType.value
-  if (!serviceType) return
-  const min = Number(serviceType.minimumPerUnit) > 1 ? Number(serviceType.minimumPerUnit) : 1
-  const price = Number(serviceType.price) || 0
-  const units = Number(saleForm.value.weight) || 0
-  saleForm.value.amount = Number(((price * units) / min).toFixed(2))
+function getServiceName(value) {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') {
+    if (typeof value.name === 'string') return value.name
+    if (typeof value.children === 'string') return value.children
+    if (typeof value.value === 'string') return value.value
+  }
+  return ''
 }
 
-function onServiceChange() {
-  const serviceType = selectedServiceType.value
-  saleForm.value.weight = serviceType ? (Number(serviceType.minimumPerUnit) || 1) : 0
-  saleForm.value.amount = serviceType ? serviceType.price : 0
+function recomputeAmount() {
+  const name = getServiceName(selectedService.value)
+  saleForm.value.amount = name
+    ? getServiceTotal(name)
+    : 0
+}
+
+function onServiceSelect(value) {
+  const name = getServiceName(value)
+  const branchId = saleForm.value.branchId
+  const st = serviceTypes.value.find(s => s.name === name && (!branchId || s.branchId === branchId))
+  if (st) {
+    saleForm.value.weight = Number(st.minimumPerUnit) || 1
+    recomputeAmount()
+  }
+}
+
+function addService() {
+  const name = getServiceName(selectedService.value)
+  if (!name) return
+  const price = getServiceTotal(name)
+  saleForm.value.services.push({ name, price })
+  selectedService.value = ''
+  saleForm.value.amount = 0
+  saleForm.value.weight = 0
+}
+
+function removeService(index) {
+  saleForm.value.services.splice(index, 1)
+  recomputeAmount()
+}
+
+function getServiceType(name) {
+  const branchId = saleForm.value.branchId
+  return serviceTypes.value.find(st =>
+    st.name === name && (!branchId || st.branchId === branchId)
+  ) || null
+}
+
+function getServiceTotal(name) {
+  const serviceType = getServiceType(name)
+  const weight = Number(saleForm.value.weight) || 0
+  if (!serviceType) return 0
+  const min = Number(serviceType.minimumPerUnit) > 1 ? Number(serviceType.minimumPerUnit) : 1
+  const price = Number(serviceType.price) || 0
+  return Number(((price * weight) / min).toFixed(2))
 }
 
 const overallTotal = computed(() =>
-  Number(saleForm.value.amount || 0) +
+  saleForm.value.services.reduce((sum, service) => sum + Number(service.price || 0), 0) +
   saleItems.value.reduce((sum, item) => sum + Number(item.price || 0), 0)
 )
 
@@ -580,11 +657,20 @@ function removeInventoryItem(name) {
 
 function editSale(sale) {
   editingSale.value = sale
+  const rawServices = Array.isArray(sale.service) ? sale.service : (sale.service ? [sale.service] : [])
+  const services = rawServices
+    .map(item => {
+      const name = getServiceName(item)
+      if (!name) return null
+      const price = typeof item === 'object' && item !== null ? Number(item.price || 0) : 0
+      return { name, price }
+    })
+    .filter(Boolean)
   saleForm.value = {
     branchId: sale.branchId,
     customerName: sale.customerName,
     customerPhone: sale.customerPhone,
-    service: sale.service,
+    services,
     amount: sale.amount,
     weight: sale.weight,
     status: sale.status,
@@ -592,6 +678,9 @@ function editSale(sale) {
     paymentType: sale.paymentType,
     notes: sale.notes
   }
+  saleForm.value.services.forEach(service => {
+    if (!service.price) service.price = getServiceTotal(service.name)
+  })
   saleItems.value = Array.isArray(sale.items) ? sale.items.map(item => ({ ...item })) : []
   showAddDialog.value = true
 }
@@ -606,16 +695,26 @@ async function handleSaveSale() {
       ? doc(db, 'sales', editingSale.value.id)
       : doc(collection(db, 'sales'))
 
+    const { services, ...formData } = saleForm.value
+    const serviceRecords = services
+      .map(s => ({ name: getServiceName(s.name), price: Number(s.price || 0) }))
+      .filter(s => s.name)
+    const serviceTotal = serviceRecords.reduce((sum, s) => sum + Number(s.price || 0), 0)
+
     if (isEditing) {
       writePromise = updateDoc(saleDocRef, {
-        ...saleForm.value,
+        ...formData,
+        service: serviceRecords,
+        amount: serviceTotal,
         items: saleItems.value,
         total: overallTotal.value,
         updatedAt: new Date()
       })
     } else {
       writePromise = setDoc(saleDocRef, {
-        ...saleForm.value,
+        ...formData,
+        service: serviceRecords,
+        amount: serviceTotal,
         items: saleItems.value,
         total: overallTotal.value,
         createdBy: userStore.user.uid,
@@ -731,7 +830,7 @@ function resetForm() {
     branchId: '',
     customerName: '',
     customerPhone: '',
-    service: '',
+    services: [],
     amount: 0,
     weight: 0,
     status: 'Pending',
@@ -741,6 +840,7 @@ function resetForm() {
   }
   saleItems.value = []
   selectedInventory.value = null
+  selectedService.value = ''
 }
 
 function printSale(sale) {

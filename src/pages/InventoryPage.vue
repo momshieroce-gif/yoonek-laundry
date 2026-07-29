@@ -1,11 +1,12 @@
 <template>
   <q-page class="inventory-page q-pa-md">
     <!-- Header -->
-    <div class="page-header q-mb-lg">
+    <div class="page-header q-mb-lg row items-center justify-between">
       <div>
         <div class="page-title">Inventory</div>
         <div class="page-subtitle">Manage stock levels and supplies</div>
       </div>
+      <q-btn rounded unelevated icon="add" label="Create Inventory" class="save-btn" @click="openAddDialog" />
     </div>
 
     <!-- Filters -->
@@ -76,9 +77,17 @@
               flat
               round
               dense
-              icon="visibility"
+              icon="edit"
               class="action-edit"
               @click="viewItem(props.row)"
+            />
+            <q-btn
+              flat
+              round
+              dense
+              icon="delete"
+              class="action-delete"
+              @click="deleteItem(props.row.id)"
             />
           </q-td>
         </template>
@@ -89,12 +98,12 @@
     <q-dialog v-model="showAddDialog" class="inventory-dialog">
       <q-card class="dialog-card">
         <q-card-section>
-          <div class="dialog-title">View Item</div>
-          <div class="dialog-subtitle">Item details</div>
+          <div class="dialog-title">{{ isAddMode ? 'Create Inventory' : 'View Item' }}</div>
+          <div class="dialog-subtitle">{{ isAddMode ? 'Enter the item details below' : 'Item details' }}</div>
         </q-card-section>
 
         <q-card-section>
-          <q-form class="q-gutter-md">
+          <q-form class="q-gutter-md" @submit="isAddMode ? handleSaveInventory() : handleUpdatePrice()">
             <q-select
               v-model="itemForm.branchId"
               label="Branch"
@@ -104,23 +113,22 @@
               emit-value
               map-options
               class="inventory-input"
-              disable
+              :disable="!isAddMode"
+              :rules="isAddMode ? [val => !!val || 'Branch is required'] : []"
             />
-            <q-select
+            <q-input
               v-model="itemForm.name"
               label="Item Name"
-              :options="itemNameOptions"
               outlined
               dense
-              emit-value
-              map-options
               class="inventory-input"
-              disable
+              :disable="!isAddMode"
+              :rules="isAddMode ? [val => !!val || 'Item name is required'] : []"
             >
               <template v-slot:prepend>
                 <q-icon name="label" color="pink-5" />
               </template>
-            </q-select>
+            </q-input>
             <div class="row q-col-gutter-md q-mt-sm">
               <div class="col-6">
                 <q-input
@@ -131,7 +139,8 @@
                   dense
                   class="inventory-input"
                   style="margin-left: 15px"
-                  disable
+                  :disable="!isAddMode"
+                  :rules="isAddMode ? [val => val !== '' && val !== null || 'Required'] : []"
                 >
                   <template v-slot:prepend>
                     <q-icon name="inventory_2" color="pink-5" />
@@ -146,7 +155,8 @@
                   outlined
                   dense
                   class="inventory-input"
-                  disable
+                  :disable="!isAddMode"
+                  :rules="isAddMode ? [val => val !== '' && val !== null || 'Required'] : []"
                 >
                   <template v-slot:prepend>
                     <q-icon name="warning" color="pink-5" />
@@ -162,7 +172,6 @@
               dense
               step="0.01"
               class="inventory-input"
-              disable
             >
               <template v-slot:prepend>
                 <q-icon name="fa-solid fa-peso-sign" color="pink-5" />
@@ -176,10 +185,16 @@
               dense
               rows="3"
               class="inventory-input"
-              disable
             />
             <div class="row justify-end q-mt-md">
-              <q-btn flat rounded label="Close" v-close-popup class="cancel-btn" />
+              <template v-if="isAddMode">
+                <q-btn flat rounded label="Cancel" v-close-popup class="cancel-btn q-mr-sm" />
+                <q-btn type="submit" rounded unelevated label="Save" class="save-btn" :loading="loading" />
+              </template>
+              <template v-else>
+                <q-btn flat rounded label="Close" v-close-popup class="cancel-btn q-mr-sm" />
+                <q-btn type="submit" rounded unelevated label="Update" class="save-btn" :loading="loading" />
+              </template>
             </div>
           </q-form>
         </q-card-section>
@@ -192,7 +207,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs } from '../boot/firebase'
+import { db, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from '../boot/firebase'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
@@ -212,6 +227,8 @@ const inventory = ref([])
 const branches = ref([])
 const transactions = ref([])
 const showAddDialog = ref(false)
+const isAddMode = ref(false)
+const selectedInventoryId = ref('')
 const searchText = ref('')
 const selectedBranch = ref('')
 
@@ -226,14 +243,10 @@ const inventoryColumns = [
 
 
 const branchOptions = computed(() => {
-  const branchIds = [...new Set(transactions.value.map(t => t.branchId))]
-  return branchIds.map(id => {
-    const branch = branches.value.find(b => b.id === id)
-    return {
-      label: branch ? branch.name : id,
-      value: id
-    }
-  })
+  return branches.value.map(branch => ({
+    label: branch.name,
+    value: branch.id
+  }))
 })
 
 const itemNameOptions = computed(() => {
@@ -316,6 +329,8 @@ const itemForm = ref({
 })
 
 function viewItem(item) {
+  isAddMode.value = false
+  selectedInventoryId.value = item.id
   itemForm.value = {
     branchId: item.branchId,
     name: item.name,
@@ -327,6 +342,124 @@ function viewItem(item) {
   showAddDialog.value = true
 }
 
+function openAddDialog() {
+  isAddMode.value = true
+  selectedInventoryId.value = ''
+  itemForm.value = {
+    branchId: userStore.userData?.branchId || '',
+    name: '',
+    currentStock: 0,
+    minStock: 10,
+    unitPrice: 0,
+    notes: ''
+  }
+  showAddDialog.value = true
+}
+
+function resetItemForm() {
+  itemForm.value = {
+    branchId: userStore.userData?.branchId || '',
+    name: '',
+    currentStock: 0,
+    minStock: 10,
+    unitPrice: 0,
+    notes: ''
+  }
+}
+
+async function handleSaveInventory() {
+  loading.value = true
+  try {
+    const docRef = await addDoc(collection(db, 'inventory'), {
+      ...itemForm.value,
+      createdBy: userStore.user.uid,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+    const branch = branches.value.find(b => b.id === itemForm.value.branchId)
+    await addDoc(collection(db, 'inventory_transactions'), {
+      branchId: itemForm.value.branchId,
+      branchName: branch ? branch.name : 'Unknown Branch',
+      inventoryItemId: docRef.id,
+      inventoryItemName: itemForm.value.name,
+      transactionType: 'Stock In',
+      quantity: itemForm.value.currentStock,
+      date: new Date().toISOString().split('T')[0],
+      notes: 'Initial stock',
+      createdBy: userStore.user.uid,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+    $q.notify({
+      type: 'positive',
+      message: 'Inventory item created successfully!'
+    })
+    showAddDialog.value = false
+    resetItemForm()
+    await loadInventory()
+    await loadInventoryTransactions()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to create inventory item: ' + error.message
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleUpdatePrice() {
+  if (!selectedInventoryId.value) return
+  loading.value = true
+  try {
+    await updateDoc(doc(db, 'inventory', selectedInventoryId.value), {
+      unitPrice: itemForm.value.unitPrice,
+      notes: itemForm.value.notes,
+      updatedAt: new Date()
+    })
+    $q.notify({
+      type: 'positive',
+      message: 'Item updated successfully!'
+    })
+    showAddDialog.value = false
+    await loadInventory()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to update item: ' + error.message
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+function deleteItem(id) {
+  $q.dialog({
+    title: 'Delete Inventory Item',
+    message: 'Are you sure you want to delete this inventory item and its related transactions?',
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      const inventoryQuery = query(collection(db, 'inventory_transactions'), where('inventoryItemId', '==', id))
+      const snapshot = await getDocs(inventoryQuery)
+      const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'inventory_transactions', d.id)))
+      await Promise.all(deletePromises)
+      await deleteDoc(doc(db, 'inventory', id))
+      $q.notify({
+        type: 'positive',
+        message: 'Inventory item deleted successfully!'
+      })
+      await loadInventory()
+      await loadInventoryTransactions()
+    } catch (error) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to delete inventory item: ' + error.message
+      })
+    }
+  })
+}
 
 onMounted(async () => {
   selectedBranch.value = userStore.userData?.branchId || ''

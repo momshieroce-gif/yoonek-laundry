@@ -90,6 +90,19 @@
             {{ props.row.quantity }}
           </q-td>
         </template>
+        <template v-slot:body-cell-actions="props">
+          <q-td :props="props">
+            <q-btn
+              v-if="!props.row.saleId"
+              flat
+              round
+              dense
+              icon="delete"
+              class="action-delete"
+              @click="deleteTransaction(props.row)"
+            />
+          </q-td>
+        </template>
       </q-table>
     </q-card>
 
@@ -183,7 +196,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, addDoc, updateDoc, doc } from '../boot/firebase'
+import { db, collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from '../boot/firebase'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
@@ -217,7 +230,8 @@ const transactionColumns = [
   { name: 'transactionType', label: 'Type', field: 'transactionType', align: 'center' },
   { name: 'quantity', label: 'Quantity', field: 'quantity', align: 'center' },
   { name: 'branchName', label: 'Branch', field: 'branchName', align: 'left' },
-  { name: 'notes', label: 'Notes', field: 'notes', align: 'left' }
+  { name: 'notes', label: 'Notes', field: 'notes', align: 'left' },
+  { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
 
 const branchOptions = computed(() =>
@@ -392,6 +406,49 @@ async function handleSaveTransaction() {
   } finally {
     loading.value = false
   }
+}
+
+function deleteTransaction(transaction) {
+  $q.dialog({
+    title: 'Delete Transaction',
+    message: 'Are you sure you want to delete this transaction?',
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      const item = inventory.value.find(inv =>
+        (transaction.inventoryItemId && inv.id === transaction.inventoryItemId) ||
+        (inv.name === transaction.inventoryItemName && inv.branchId === transaction.branchId)
+      )
+      if (item) {
+        const current = Number(item.currentStock) || 0
+        const qty = Number(transaction.quantity) || 0
+        let newStock = current
+        if (transaction.transactionType === 'Stock Out') {
+          newStock = current + qty
+        } else if (transaction.transactionType === 'Stock In' || transaction.transactionType === 'Adjustment') {
+          newStock = Math.max(0, current - qty)
+        }
+        await updateDoc(doc(db, 'inventory', item.id), {
+          currentStock: newStock,
+          updatedAt: new Date()
+        })
+      }
+
+      await deleteDoc(doc(db, 'inventory_transactions', transaction.id))
+      $q.notify({
+        type: 'positive',
+        message: 'Transaction deleted successfully!'
+      })
+      await loadInventory()
+      await loadTransactions()
+    } catch (error) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to delete transaction: ' + error.message
+      })
+    }
+  })
 }
 
 function resetForm() {

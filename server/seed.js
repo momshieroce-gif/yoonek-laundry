@@ -646,12 +646,14 @@ async function seedDatabase() {
       date.setDate(date.getDate() - Math.floor(Math.random() * 60)); // Last 60 days
       
       const serviceType = seededServiceTypes[i % seededServiceTypes.length];
+      const secondService = seededServiceTypes[(i + 1) % seededServiceTypes.length];
+      const selectedServiceTypes = [serviceType, secondService];
       const sale = {
         branchId: branchIds[Math.floor(Math.random() * branchIds.length)],
         customerName: `Customer ${i + 1}`,
         customerPhone: `+1234567${String(i).padStart(4, '0')}`,
-        service: serviceType.name,
-        amount: serviceType.price,
+        service: selectedServiceTypes.map(st => ({ name: st.name, price: st.price })),
+        amount: selectedServiceTypes.reduce((sum, st) => sum + Number(st.price), 0),
         weight: parseFloat((Math.random() * 10 + 1).toFixed(2)),
         status: statuses[Math.floor(Math.random() * statuses.length)],
         paymentStatus: paymentStatuses[Math.floor(Math.random() * paymentStatuses.length)],
