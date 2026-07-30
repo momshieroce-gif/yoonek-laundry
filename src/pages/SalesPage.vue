@@ -858,6 +858,11 @@ function printSale(sale) {
     }
   })
   const itemsTotal = items.reduce((sum, item) => sum + Number(item.price || 0), 0)
+
+  const services = Array.isArray(sale.service) ? sale.service : (sale.service ? [sale.service] : [])
+  const serviceRows = services
+    .map(s => `<div class="row"><span>${getServiceName(s)}</span><span>${formatCurrency(Number(s.price || 0))}</span></div>`)
+    .join('')
   const itemRows = Object.values(itemGroups)
     .map(group => `<div class="row"><span>${group.name} x ${group.count}</span><span>${formatCurrency(group.price * group.count)}</span></div>`)
     .join('')
@@ -892,15 +897,16 @@ function printSale(sale) {
         <div class="line"></div>
         <div class="row"><span>Date:</span><span>${sale.date}</span></div>
         <div class="row"><span>Customer:</span><span>${sale.customerName}</span></div>
-        <div class="row"><span>Service:</span><span>${sale.service}</span></div>
+        <div class="row bold"><span>Services:</span><span></span></div>
+        ${serviceRows}
         <div class="line"></div>
-        <div class="row"><span>Amount:</span><span>${formatCurrency(sale.amount)}</span></div>
-        <div class="row"><span>Weight:</span><span>${sale.weight || 0} kg</span></div>
-        <div class="row"><span>Status:</span><span>${sale.status}</span></div>
+        <div class="row"><span>Service Amount:</span><span>${formatCurrency(sale.amount)}</span></div>
         ${itemsSection}
         <div class="line"></div>
-        <div class="row bold"><span>Total:</span><span>${formatCurrency(Number(sale.amount || 0) + itemsTotal)}</span></div>
+        <div class="row bold"><span>Total:</span><span>${formatCurrency(Number(sale.total !== undefined ? sale.total : (Number(sale.amount || 0) + itemsTotal)))}</span></div>
         <div class="line"></div>
+          <div class="row"><span>Status:</span><span>${sale.status}</span></div>
+        
         <div class="center">Thank you!</div>
       </body>
     </html>
