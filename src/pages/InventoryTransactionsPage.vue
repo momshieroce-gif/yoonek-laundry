@@ -125,6 +125,7 @@
               emit-value
               map-options
               class="transaction-input"
+              :disable="!userStore.isAdmin"
               :rules="[val => !!val || 'Branch is required']"
             />
             <q-input
@@ -289,7 +290,7 @@ const filteredTransactions = computed(() => {
 })
 
 const transactionForm = ref({
-  branchId: '',
+  branchId: userStore.userData?.branchId || '',
   inventoryItemName: '',
   transactionType: 'Stock In',
   quantity: 1,
@@ -453,7 +454,7 @@ function deleteTransaction(transaction) {
 
 function resetForm() {
   transactionForm.value = {
-    branchId: '',
+    branchId: userStore.userData?.branchId || '',
     inventoryItemName: '',
     transactionType: 'Stock In',
     quantity: 1,

@@ -113,7 +113,7 @@
               emit-value
               map-options
               class="inventory-input"
-              :disable="!isAddMode"
+              :disable="!userStore.isAdmin || !isAddMode"
               :rules="isAddMode ? [val => !!val || 'Branch is required'] : []"
             />
             <q-input
@@ -331,8 +331,9 @@ const itemForm = ref({
 function viewItem(item) {
   isAddMode.value = false
   selectedInventoryId.value = item.id
+  const userBranchId = userStore.userData?.branchId || ''
   itemForm.value = {
-    branchId: item.branchId,
+    branchId: userStore.isAdmin ? item.branchId : userBranchId,
     name: item.name,
     currentStock: item.currentStock,
     minStock: item.minStock,

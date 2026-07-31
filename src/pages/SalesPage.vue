@@ -154,6 +154,7 @@
               emit-value
               map-options
               class="sale-input"
+              :disable="!userStore.isAdmin"
               :rules="[val => !!val || 'Branch is required']"
               @update:model-value="onBranchChange"
             />
@@ -675,8 +676,9 @@ function editSale(sale) {
       return { name, price }
     })
     .filter(Boolean)
+  const userBranchId = userStore.userData?.branchId || ''
   saleForm.value = {
-    branchId: sale.branchId,
+    branchId: userStore.isAdmin ? sale.branchId : userBranchId,
     invoiceNo: sale.invoiceNo || '00',
     customerName: sale.customerName,
     customerPhone: sale.customerPhone,
@@ -836,8 +838,9 @@ function openAddDialog() {
 }
 
 function resetForm() {
+  const userBranchId = userStore.userData?.branchId || ''
   saleForm.value = {
-    branchId: '',
+    branchId: userStore.isAdmin ? '' : userBranchId,
     invoiceNo: '00',
     customerName: '',
     customerPhone: '',
@@ -907,6 +910,7 @@ function printSale(sale) {
         <div class="spacer"></div>
         <div class="line"></div>
         <div class="row"><span>Date:</span><span>${sale.date}</span></div>
+        <div class="row"><span>Invoice No.:</span><span>${sale.invoiceNo}</span></div>
         <div class="row"><span>Customer:</span><span>${sale.customerName}</span></div>
         <div class="row bold"><span>Services:</span><span></span></div>
         ${serviceRows}
