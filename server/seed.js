@@ -649,6 +649,7 @@ async function seedDatabase() {
       const secondService = seededServiceTypes[(i + 1) % seededServiceTypes.length];
       const selectedServiceTypes = [serviceType, secondService];
       const sale = {
+        invoiceNo: `00${String(i + 1).padStart(4, '0')}`,
         branchId: branchIds[Math.floor(Math.random() * branchIds.length)],
         customerName: `Customer ${i + 1}`,
         customerPhone: `+1234567${String(i).padStart(4, '0')}`,

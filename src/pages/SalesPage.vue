@@ -158,6 +158,13 @@
               @update:model-value="onBranchChange"
             />
             <q-input
+              v-model="saleForm.invoiceNo"
+              label="Invoice No"
+              outlined
+              dense
+              class="sale-input"
+            />
+            <q-input
               v-model="saleForm.customerName"
               label="Customer Name"
               outlined
@@ -175,12 +182,13 @@
               outlined
               dense
               class="sale-input"
+              style="margin-top: 0px;"
             >
               <template v-slot:prepend>
                 <q-icon name="phone" color="pink-5" />
               </template>
             </q-input>
-            <div class="row q-col-gutter-md items-center">
+            <div class="row q-col-gutter-md items-center" style="padding-left:15px; padding-top: 10px; padding-bottom: 10px;">
               <div class="col-9">
                 <q-select
                   v-model="selectedService"
@@ -196,7 +204,7 @@
                   @update:model-value="onServiceSelect"
                 />
               </div>
-              <div class="col-3">
+              <div class="col">
                 <q-btn
                   label="Add"
                   icon="add"
@@ -520,6 +528,7 @@ function getStatusColor(status) {
 
 const saleForm = ref({
   branchId: '',
+  invoiceNo: '00',
   customerName: '',
   customerPhone: '',
   services: [],
@@ -668,6 +677,7 @@ function editSale(sale) {
     .filter(Boolean)
   saleForm.value = {
     branchId: sale.branchId,
+    invoiceNo: sale.invoiceNo || '00',
     customerName: sale.customerName,
     customerPhone: sale.customerPhone,
     services,
@@ -828,6 +838,7 @@ function openAddDialog() {
 function resetForm() {
   saleForm.value = {
     branchId: '',
+    invoiceNo: '00',
     customerName: '',
     customerPhone: '',
     services: [],
@@ -1147,7 +1158,7 @@ onMounted(() => {
   background: linear-gradient(135deg, #E91E8C 0%, #FF69B4 100%);
   color: white;
   font-weight: 700;
-  padding: 0 22px;
+  padding: 0 20px;
   box-shadow: 0 10px 28px rgba(233, 30, 140, 0.35);
   transition: transform 0.25s ease;
 }
