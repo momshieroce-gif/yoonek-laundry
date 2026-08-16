@@ -88,8 +88,24 @@ public class FingerprintBridgeServer {
                 }
                 java.util.Map<String, String> request = JsonUtil.parseFlatObject(readBody(exchange));
                 String fileName = request.get("templateFile");
+                java.util.Map<String, String> current = new java.util.HashMap<String, String>();
+                if (fileName == null || fileName.trim().length() == 0) {
+                    File currentFile = new File(System.getProperty("fingerprint.scan.dir", "scanImages"), "current.json");
+                    if (currentFile.isFile()) {
+                        FileInputStream metadataInput = new FileInputStream(currentFile);
+                        ByteArrayOutputStream metadataOutput = new ByteArrayOutputStream();
+                        byte[] metadataBuffer = new byte[1024];
+                        int metadataCount;
+                        while ((metadataCount = metadataInput.read(metadataBuffer)) != -1) {
+                            metadataOutput.write(metadataBuffer, 0, metadataCount);
+                        }
+                        metadataInput.close();
+                        current = JsonUtil.parseFlatObject(metadataOutput.toString("UTF-8"));
+                        fileName = current.get("templateFile");
+                    }
+                }
                 if (fileName == null || fileName.indexOf("..") >= 0 || fileName.indexOf('/') >= 0 || fileName.indexOf('\\') >= 0) {
-                    writeJson(exchange, 400, "{\"success\":false,\"message\":\"Invalid template filename\"}");
+                    writeJson(exchange, 404, "{\"success\":false,\"message\":\"No current fingerprint JSON found\"}");
                     return;
                 }
                 File templateFile = new File(System.getProperty("fingerprint.scan.dir", "scanImages"), fileName);
@@ -105,7 +121,7 @@ public class FingerprintBridgeServer {
                 input.close();
                 long timeout = request.get("timeoutMs") == null ? 30000 : Long.parseLong(request.get("timeoutMs"));
                 FingerprintService.VerifyResult result = service.verify(Base64Util.encode(output.toByteArray()), timeout);
-                writeJson(exchange, 200, toJson(result));
+                writeJson(exchange, 200, toJson(result, fileName, current.get("name")));
             }
         }));
 
@@ -133,6 +149,13 @@ public class FingerprintBridgeServer {
         return "{\"success\":" + result.success + ",\"verified\":" + result.verified
                 + ",\"falseAcceptRate\":" + result.falseAcceptRate + ",\"message\":\""
                 + JsonUtil.escape(result.message) + "\"}";
+    }
+
+    private static String toJson(FingerprintService.VerifyResult result, String templateFile, String name) {
+        return "{\"success\":" + result.success + ",\"verified\":" + result.verified
+                + ",\"falseAcceptRate\":" + result.falseAcceptRate + ",\"templateFile\":\""
+                + JsonUtil.escape(templateFile) + "\",\"name\":\"" + JsonUtil.escape(name)
+                + "\",\"message\":\"" + JsonUtil.escape(result.message) + "\"}";
     }
 
     private static String readBody(HttpExchange exchange) throws IOException {

@@ -285,6 +285,11 @@ public class EnrollDesktopApp extends JFrame {
             FileOutputStream output = new FileOutputStream(templateFile);
             output.write(templateBytes);
             output.close();
+                FileOutputStream metadata = new FileOutputStream(new File(directory, "current.json"));
+                metadata.write(("{\"name\":\"" + JsonUtil.escape(name) + "\",\"imageFile\":\""
+                    + JsonUtil.escape(imageFile.getName()) + "\",\"templateFile\":\""
+                    + JsonUtil.escape(templateFile.getName()) + "\"}").getBytes("UTF-8"));
+                metadata.close();
             return new String[] { imageFile.getPath(), templateFile.getPath() };
         } catch (IOException ex) {
             imageFile.delete();
