@@ -245,6 +245,27 @@
               </div>
             </div>
 
+            <div class="password-info q-pa-md rounded-borders">
+              <div class="row items-center justify-between">
+                <div class="row items-center">
+                  <q-icon name="fingerprint" color="pink-5" size="1.2rem" class="q-mr-sm" />
+                  <div class="text-caption">
+                    {{ editingUser?.fingerprintEnrolled ? 'Fingerprint enrolled for this user.' : 'No fingerprint enrolled yet.' }}
+                  </div>
+                </div>
+                <q-btn
+                  flat
+                  rounded
+                  dense
+                  :label="editingUser?.fingerprintEnrolled ? 'Re-enroll' : 'Enroll Fingerprint'"
+                  icon="fingerprint"
+                  class="reset-btn"
+                  @click="enrollUserFingerprint"
+                  :loading="enrolling"
+                />
+              </div>
+            </div>
+
             <div class="row justify-between items-center q-mt-md">
               <q-btn
                 flat
@@ -275,6 +296,7 @@ import { db, auth, app, collection, getDocs, doc, setDoc, updateDoc, serverTimes
 import { sendPasswordResetEmail, createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth'
 import { getApp, initializeApp } from 'firebase/app'
 import { useQuasar } from 'quasar'
+import { enrollFingerprint } from '../utils/fingerprintBridge'
 
 const $q = useQuasar()
 const router = useRouter()
@@ -290,6 +312,7 @@ onMounted(async () => {
 
 const loading = ref(false)
 const resetting = ref(false)
+const enrolling = ref(false)
 const users = ref([])
 const branches = ref([])
 const showEditDialog = ref(false)
@@ -502,6 +525,32 @@ async function handleAddUser() {
     })
   } finally {
     adding.value = false
+  }
+}
+
+async function enrollUserFingerprint() {
+  if (!editingUser.value) return
+  enrolling.value = true
+  try {
+    $q.notify({ type: 'info', message: 'Scan the fingerprint on the reader a few times…' })
+    const result = await enrollFingerprint()
+    if (!result.success) {
+      throw new Error(result.message || 'Enrollment failed')
+    }
+    await updateDoc(doc(db, 'users', editingUser.value.id), {
+      fingerprintTemplate: result.template,
+      fingerprintEnrolled: true,
+      updatedAt: new Date()
+    })
+    editingUser.value.fingerprintEnrolled = true
+    $q.notify({ type: 'positive', message: 'Fingerprint enrolled successfully!' })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Fingerprint enrollment failed: ' + error.message
+    })
+  } finally {
+    enrolling.value = false
   }
 }
 

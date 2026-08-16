@@ -891,18 +891,18 @@ function printSale(sale) {
       <head>
         <title>Receipt</title>
         <style>
-          @page { size: 80mm auto; margin: 0; }
-          body { width: 80mm; font-family: 'Segoe UI', sans-serif; font-size: 12px; padding: 6mm; color: #000; }
+          @page { size: 58mm auto; margin: 0; }
+          body { width: 58mm; font-family: 'Segoe UI', sans-serif; font-size: 10px; padding: 3mm; color: #000; box-sizing: border-box; }
           .center { text-align: center; }
           .bold { font-weight: 700; }
-          .line { border-top: 1px dashed #000; margin: 4mm 0; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 2mm; }
-          .spacer { height: 4mm; }
+          .line { border-top: 1px dashed #000; margin: 2mm 0; }
+          .row { display: flex; justify-content: space-between; margin-bottom: 1mm; }
+          .spacer { height: 2mm; }
         </style>
       </head>
       <body onload="window.print(); window.onafterprint = () => window.close()">
         <div class="center">
-          <img src="${window.location.origin}/logoPrint.png" alt="Logo" style="width: 20mm; height: auto; margin-bottom: 2mm;" />
+          <img src="${window.location.origin}/logoPrint.png" alt="Logo" style="width: 14mm; height: auto; margin-bottom: 1.5mm;" />
           <div class="bold" style="font-size: 16px;">${branch.name || 'Yoonek Laundry'}</div>
           ${addressLine}
           ${phoneLine}
