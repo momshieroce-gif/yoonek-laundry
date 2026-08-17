@@ -95,7 +95,7 @@ module.exports = configure(function (ctx) {
         overwrite: true,
         extraResources: [
           {
-            from: 'fingerprint-bridge',
+            from: '../fingerprint-bridge',
             to: 'fingerprint-bridge'
           }
         ],

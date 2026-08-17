@@ -31,6 +31,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('fingerprintVerification', {
+	start: () => ipcRenderer.invoke('fingerprint-verification-start'),
+	restart: () => ipcRenderer.invoke('fingerprint-verification-restart'),
 	isRunning: () => ipcRenderer.invoke('fingerprint-verification-status'),
 	stop: () => ipcRenderer.invoke('fingerprint-verification-stop')
 })

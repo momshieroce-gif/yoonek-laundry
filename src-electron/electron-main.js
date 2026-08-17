@@ -12,7 +12,7 @@ let verificationProcess
 function verificationDirectory () {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'fingerprint-bridge')
-    : path.resolve(__dirname, '..', 'fingerprint-bridge')
+    : path.resolve(__dirname, '..', '..', '..', 'fingerprint-bridge')
 }
 
 function startVerification () {
@@ -20,25 +20,47 @@ function startVerification () {
 
   const directory = verificationDirectory()
   const batchFile = path.join(directory, 'run-verification.bat')
-  verificationProcess = spawn('cmd.exe', ['/c', batchFile], {
+  const commandInterpreter = process.env.ComSpec || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe')
+  const launchedProcess = spawn(commandInterpreter, ['/c', batchFile], {
     cwd: directory,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
   })
-  verificationProcess.stdout.on('data', (data) => console.log('[fingerprint-verification]', data.toString().trim()))
-  verificationProcess.stderr.on('data', (data) => console.error('[fingerprint-verification]', data.toString().trim()))
-  verificationProcess.on('error', (error) => console.error('Could not start fingerprint verification:', error))
-  verificationProcess.on('exit', (code) => {
+  verificationProcess = launchedProcess
+  launchedProcess.stdout.on('data', (data) => console.log('[fingerprint-verification]', data.toString().trim()))
+  launchedProcess.stderr.on('data', (data) => console.error('[fingerprint-verification]', data.toString().trim()))
+  launchedProcess.on('error', (error) => console.error('Could not start fingerprint verification:', error))
+  launchedProcess.on('exit', (code) => {
     console.log(`Fingerprint verification stopped with code ${code}`)
-    verificationProcess = null
+    if (verificationProcess === launchedProcess) verificationProcess = null
   })
   return true
 }
 
 function stopVerification () {
-  if (!verificationProcess || verificationProcess.exitCode !== null) return
-  verificationProcess.kill()
+  if (!verificationProcess || verificationProcess.exitCode !== null) return Promise.resolve()
+
+  const processId = verificationProcess.pid
   verificationProcess = null
+  if (platform !== 'win32') return Promise.resolve()
+
+  return new Promise((resolve) => {
+    const taskkillPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe')
+    const taskkill = spawn(taskkillPath, ['/pid', String(processId), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    taskkill.on('error', (error) => {
+      console.error('Could not stop fingerprint verification:', error)
+      resolve()
+    })
+    taskkill.on('exit', resolve)
+  })
+}
+
+async function restartVerification () {
+  await stopVerification()
+  return startVerification()
 }
 
 function createWindow () {
@@ -80,13 +102,14 @@ function createWindow () {
 }
 
 app.whenReady().then(createWindow)
-app.whenReady().then(startVerification)
 
+ipcMain.handle('fingerprint-verification-start', () => startVerification())
+ipcMain.handle('fingerprint-verification-restart', () => restartVerification())
 ipcMain.handle('fingerprint-verification-status', () => Boolean(
   verificationProcess && verificationProcess.exitCode === null
 ))
-ipcMain.handle('fingerprint-verification-stop', () => {
-  stopVerification()
+ipcMain.handle('fingerprint-verification-stop', async () => {
+  await stopVerification()
   return true
 })
 
