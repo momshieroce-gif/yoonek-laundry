@@ -77,7 +77,7 @@
         :columns="salesColumns"
         row-key="id"
         flat
-        :rows-per-page-options="[5]"
+        :pagination="{ rowsPerPage: 5 }"
       >
         <template v-slot:body-cell-amount="props">
           <q-td :props="props">
@@ -153,9 +153,20 @@ const quickActions = [
   { label: 'Print', icon: 'print', handler: () => printCurrentMonthSales() }
 ]
 
+function getServiceName(value) {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') return value.name || value.children || value.value || ''
+  return ''
+}
+
+function formatServices(value) {
+  const services = Array.isArray(value) ? value : (value ? [value] : [])
+  return services.map(getServiceName).filter(Boolean).join(', ')
+}
+
 const salesColumns = [
   { name: 'customerName', label: 'Customer', field: 'customerName', align: 'left' },
-  { name: 'service', label: 'Service', field: 'service', align: 'left' },
+  { name: 'service', label: 'Service', field: row => formatServices(row.service), align: 'left' },
   { name: 'amount', label: 'Amount', field: 'amount', align: 'right' },
   { name: 'status', label: 'Status', field: 'status', align: 'center' },
   { name: 'date', label: 'Date', field: 'date', align: 'left' }
@@ -233,6 +244,7 @@ async function loadDashboardData() {
     )
     const salesSnapshot = await getDocs(salesQuery)
     recentSales.value = salesSnapshot.docs.map(doc => ({
+      id: doc.id,
       ...doc.data(),
       date: doc.data().createdAt?.toDate()?.toLocaleDateString() || 'N/A'
     }))
@@ -269,7 +281,7 @@ async function loadDashboardData() {
       .sort((a, b) => (b.createdAt?.toDate() || 0) - (a.createdAt?.toDate() || 0))
       .map(sale => ({
         customerName: sale.customerName || '',
-        service: sale.service || '',
+        service: formatServices(sale.service),
         amount: sale.amount || 0,
         status: sale.status || '',
         date: sale.createdAt?.toDate()?.toLocaleDateString() || 'N/A'
@@ -281,8 +293,11 @@ async function loadDashboardData() {
     // Top service
     const serviceCounts = {}
     allSales.forEach(sale => {
-      const service = sale.service || 'Unknown'
-      serviceCounts[service] = (serviceCounts[service] || 0) + 1
+      const services = Array.isArray(sale.service) ? sale.service : [sale.service]
+      services.forEach(serviceValue => {
+        const service = getServiceName(serviceValue) || 'Unknown'
+        serviceCounts[service] = (serviceCounts[service] || 0) + 1
+      })
     })
     const topEntry = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])[0]
     topService.value = topEntry ? { name: topEntry[0], count: topEntry[1] } : { name: '', count: 0 }

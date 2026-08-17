@@ -40,7 +40,8 @@ module.exports = configure(function (ctx) {
         node: 'node16'
       },
 
-      vueRouterMode: 'history'
+      // file:// loaded builds (Electron/Cordova/Capacitor) have no server for HTML5 history, so use hash mode there
+      vueRouterMode: (ctx.mode.electron || ctx.mode.cordova || ctx.mode.capacitor) ? 'hash' : 'history'
     },
 
     sourceFiles: {
