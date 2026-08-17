@@ -59,6 +59,11 @@ function createWindow () {
 
   mainWindow.loadURL(process.env.APP_URL)
 
+  // forward renderer console output to the main process stdout so it shows up in the terminal
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[renderer] ${message} (${sourceId}:${line})`)
+  })
+
   if (process.env.DEBUGGING) {
     // if on DEV or Production with debug enabled
     mainWindow.webContents.openDevTools()
