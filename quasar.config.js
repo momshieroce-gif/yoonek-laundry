@@ -92,6 +92,12 @@ module.exports = configure(function (ctx) {
       packager: {
         asar: true,
         overwrite: true,
+        extraResources: [
+          {
+            from: 'fingerprint-bridge',
+            to: 'fingerprint-bridge'
+          }
+        ],
         icon: 'assets/icon.png'
       },
       builder: {

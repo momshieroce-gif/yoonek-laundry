@@ -27,3 +27,10 @@
  *   }
  * }
  */
+
+import { contextBridge, ipcRenderer } from 'electron'
+
+contextBridge.exposeInMainWorld('fingerprintVerification', {
+	isRunning: () => ipcRenderer.invoke('fingerprint-verification-status'),
+	stop: () => ipcRenderer.invoke('fingerprint-verification-stop')
+})
