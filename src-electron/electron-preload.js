@@ -36,3 +36,10 @@ contextBridge.exposeInMainWorld('fingerprintVerification', {
 	isRunning: () => ipcRenderer.invoke('fingerprint-verification-status'),
 	stop: () => ipcRenderer.invoke('fingerprint-verification-stop')
 })
+
+contextBridge.exposeInMainWorld('fingerprintEnrollment', {
+	start: () => ipcRenderer.invoke('fingerprint-enrollment-start'),
+	restart: () => ipcRenderer.invoke('fingerprint-enrollment-restart'),
+	isRunning: () => ipcRenderer.invoke('fingerprint-enrollment-status'),
+	stop: () => ipcRenderer.invoke('fingerprint-enrollment-stop')
+})

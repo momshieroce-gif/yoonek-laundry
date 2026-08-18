@@ -8,6 +8,7 @@ const platform = process.platform || os.platform()
 
 let mainWindow
 let verificationProcess
+let enrollmentProcess
 
 function verificationDirectory () {
   return app.isPackaged
@@ -63,6 +64,54 @@ async function restartVerification () {
   return startVerification()
 }
 
+function startEnrollment () {
+  if (enrollmentProcess && enrollmentProcess.exitCode === null) return false
+
+  const directory = verificationDirectory()
+  const batchFile = path.join(directory, 'run-enrollment.bat')
+  const commandInterpreter = process.env.ComSpec || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe')
+  const launchedProcess = spawn(commandInterpreter, ['/c', batchFile], {
+    cwd: directory,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  enrollmentProcess = launchedProcess
+  launchedProcess.stdout.on('data', (data) => console.log('[fingerprint-enrollment]', data.toString().trim()))
+  launchedProcess.stderr.on('data', (data) => console.error('[fingerprint-enrollment]', data.toString().trim()))
+  launchedProcess.on('error', (error) => console.error('Could not start fingerprint enrollment:', error))
+  launchedProcess.on('exit', (code) => {
+    console.log(`Fingerprint enrollment stopped with code ${code}`)
+    if (enrollmentProcess === launchedProcess) enrollmentProcess = null
+  })
+  return true
+}
+
+function stopEnrollment () {
+  if (!enrollmentProcess || enrollmentProcess.exitCode !== null) return Promise.resolve()
+
+  const processId = enrollmentProcess.pid
+  enrollmentProcess = null
+  if (platform !== 'win32') return Promise.resolve()
+
+  return new Promise((resolve) => {
+    const taskkillPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe')
+    const taskkill = spawn(taskkillPath, ['/pid', String(processId), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    taskkill.on('error', (error) => {
+      console.error('Could not stop fingerprint enrollment:', error)
+      resolve()
+    })
+    taskkill.on('exit', resolve)
+  })
+}
+
+async function restartEnrollment () {
+  await stopEnrollment()
+  return startEnrollment()
+}
+
 function createWindow () {
   /**
    * Initial window options
@@ -113,7 +162,18 @@ ipcMain.handle('fingerprint-verification-stop', async () => {
   return true
 })
 
+ipcMain.handle('fingerprint-enrollment-start', () => startEnrollment())
+ipcMain.handle('fingerprint-enrollment-restart', () => restartEnrollment())
+ipcMain.handle('fingerprint-enrollment-status', () => Boolean(
+  enrollmentProcess && enrollmentProcess.exitCode === null
+))
+ipcMain.handle('fingerprint-enrollment-stop', async () => {
+  await stopEnrollment()
+  return true
+})
+
 app.on('before-quit', stopVerification)
+app.on('before-quit', stopEnrollment)
 
 app.on('window-all-closed', () => {
   if (platform !== 'darwin') {
