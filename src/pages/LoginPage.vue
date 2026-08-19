@@ -324,13 +324,20 @@ async function recordAttendance (name, file) {
     )
     const snapshot = await getDocs(todayQuery)
     let logType = 'In'
+    let noOfHours = 0
     if (!snapshot.empty) {
-      logType = snapshot.docs[0].data().logType === 'In' ? 'Out' : 'In'
+      const latestLog = snapshot.docs[0].data()
+      logType = latestLog.logType === 'In' ? 'Out' : 'In'
+      if (logType === 'Out' && latestLog.createdAt?.toDate) {
+        const elapsedMilliseconds = Math.max(0, Date.now() - latestLog.createdAt.toDate().getTime())
+        noOfHours = Math.round((elapsedMilliseconds / (60 * 60 * 1000)) * 100) / 100
+      }
     }
     await addDoc(attendanceRef, {
       name,
       file,
       logType,
+      noOfHours,
       createdAt: serverTimestamp()
     })
   } catch (error) {

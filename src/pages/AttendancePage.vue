@@ -80,6 +80,20 @@
               </q-chip>
             </q-td>
           </template>
+          <template v-slot:body-cell-actions="props">
+            <q-td :props="props">
+              <q-btn
+                flat
+                round
+                dense
+                icon="delete"
+                color="negative"
+                @click="deleteAttendance(props.row)"
+              >
+                <q-tooltip>Delete attendance log</q-tooltip>
+              </q-btn>
+            </q-td>
+          </template>
         </q-table>
 
         <div class="row items-center justify-end q-mt-md q-gutter-sm">
@@ -110,7 +124,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { db, collection, query, orderBy, limit, startAfter, getDocs } from '../boot/firebase'
+import { db, collection, doc, query, orderBy, limit, startAfter, getDocs, deleteDoc } from '../boot/firebase'
 
 const $q = useQuasar()
 const isElectron = typeof window !== 'undefined' && Boolean(window.fingerprintVerification)
@@ -200,7 +214,9 @@ let lastDocOnPage = null
 const attendanceColumns = [
   { name: 'name', label: 'Name', field: 'name', align: 'left' },
   { name: 'logType', label: 'Log Type', field: 'logType', align: 'center' },
-  { name: 'createdAt', label: 'Date & Time', field: 'createdAt', align: 'left' }
+  { name: 'noOfHours', label: 'No. of Hours', field: 'noOfHours', align: 'right' },
+  { name: 'createdAt', label: 'Date & Time', field: 'createdAt', align: 'left' },
+  { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
 
 function formatAttendanceTimestamp (timestamp) {
@@ -230,6 +246,7 @@ async function loadAttendancePage (cursor) {
         name: data.name,
         logType: data.logType,
         file: data.file,
+        noOfHours: Number(data.noOfHours) || 0,
         createdAt: formatAttendanceTimestamp(data.createdAt)
       }
     })
@@ -259,6 +276,24 @@ async function reloadAttendance () {
   currentAttendancePage.value = 0
   cursorsByPage.value = [undefined]
   await loadAttendancePage(undefined)
+}
+
+function deleteAttendance (attendance) {
+  $q.dialog({
+    title: 'Delete Attendance Log',
+    message: `Delete the attendance log for ${attendance.name}?`,
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await deleteDoc(doc(db, 'attendance', attendance.id))
+      $q.notify({ type: 'positive', message: 'Attendance log deleted.' })
+      await reloadAttendance()
+    } catch (error) {
+      console.error('Could not delete attendance log:', error)
+      $q.notify({ type: 'negative', message: 'Could not delete attendance log.' })
+    }
+  })
 }
 
 onMounted(() => {
