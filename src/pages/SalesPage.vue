@@ -891,16 +891,52 @@ function printSale(sale) {
       <head>
         <title>Receipt</title>
         <style>
-          @page { size: 58mm auto; margin: 0; }
-          body { width: 58mm; font-family: 'Segoe UI', sans-serif; font-size: 10px; padding: 3mm; color: #000; box-sizing: border-box; }
+          @page {
+            size: 58mm 210mm;
+            margin: 0;
+          }
+          html, body {
+            width: 48mm;
+            max-width: 48mm;
+            height: 180mm;
+            max-height: 180mm;
+            margin: 0;
+            padding: 1mm 1mm 0;
+            background: #fff;
+            color: #000;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 7.2px;
+            line-height: 1.2;
+            box-sizing: border-box;
+            overflow: hidden;
+          }
+          body {
+            padding: 1.2mm 1.2mm 0;
+          }
           .center { text-align: center; }
           .bold { font-weight: 700; }
-          .line { border-top: 1px dashed #000; margin: 2mm 0; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 1mm; }
-          .spacer { height: 2mm; }
+          .line { border-top: 1px dashed #000; margin: 1.2mm 0; }
+          .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.8mm;
+            gap: 0.8mm;
+          }
+          .row span:first-child {
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+          .row span:last-child {
+            flex: 0 0 auto;
+            text-align: right;
+            white-space: nowrap;
+          }
+          .spacer { height: 1.5mm; }
+          img { max-width: 100%; height: auto; }
         </style>
       </head>
-      <body onload="window.print(); window.onafterprint = () => window.close()">
+      <body>
         <div class="center">
           <img src="${window.location.origin}/logoPrint.png" alt="Logo" style="width: 14mm; height: auto; margin-bottom: 1.5mm;" />
           <div class="bold" style="font-size: 16px;">${branch.name || 'Yoonek Laundry'}</div>
@@ -920,12 +956,19 @@ function printSale(sale) {
         <div class="line"></div>
         <div class="row bold"><span>Total:</span><span>${formatCurrency(Number(sale.total !== undefined ? sale.total : (Number(sale.amount || 0) + itemsTotal)))}</span></div>
         <div class="line"></div>
-          <div class="row"><span>Status:</span><span>${sale.status}</span></div>
-        
+        <div class="row"><span>Status:</span><span>${sale.status}</span></div>
         <div class="center">Thank you!</div>
       </body>
     </html>
   `
+
+  const thermalPage = { width: 58000, height: 180000 }
+
+  if (window.electronPrint && typeof window.electronPrint.printReceipt === 'function') {
+    window.electronPrint.printReceipt({ html: printContent, pageSize: thermalPage })
+    return
+  }
+
   const printWindow = window.open('', '_blank', `left=0,top=0,width=${screen.availWidth},height=${screen.availHeight}`)
   if (printWindow) {
     printWindow.document.write(printContent)
@@ -933,6 +976,7 @@ function printSale(sale) {
     printWindow.moveTo(0, 0)
     printWindow.resizeTo(screen.availWidth, screen.availHeight)
     printWindow.focus()
+    printWindow.print()
   }
 }
 
@@ -955,12 +999,35 @@ function printReport() {
     <head>
       <title>Sales Report</title>
       <style>
-        body { font-family: 'Segoe UI', sans-serif; padding: 24px; color: #4A2038; }
-        h2 { margin: 0 0 8px; color: #E91E8C; }
-        .meta { margin-bottom: 16px; font-size: 14px; color: #8A4E71; }
+        @page {
+          size: 58mm 210mm;
+          margin: 0;
+        }
+        html, body {
+          width: 48mm;
+          max-width: 48mm;
+          height: 180mm;
+          max-height: 180mm;
+          margin: 0;
+          padding: 1.2mm 1.2mm 0;
+          color: #000;
+          font-family: 'Segoe UI', sans-serif;
+          font-size: 7.2px;
+          box-sizing: border-box;
+          overflow: hidden;
+        }
+        body {
+          padding: 1.2mm 1.2mm 0;
+        }
+        h2 {
+          margin: 0 0 8px;
+          color: #000;
+          font-size: 12px;
+        }
+        .meta { margin-bottom: 12px; font-size: 7.2px; color: #000; }
         table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #FDD3E8; }
-        th { background: #FFF5FA; color: #E91E8C; font-weight: 700; }
+        th, td { padding: 3px 1px; text-align: left; border-bottom: 1px solid #000; }
+        th { background: #fff; color: #000; font-weight: 700; }
       </style>
     </head>
     <body onload="window.print(); window.onafterprint = () => window.close()">

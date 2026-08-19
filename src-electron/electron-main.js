@@ -172,6 +172,41 @@ ipcMain.handle('fingerprint-enrollment-stop', async () => {
   return true
 })
 
+ipcMain.handle('print-receipt', async (_event, payload = {}) => {
+  const html = payload.html || '<html><body></body></html>'
+  const pageSize = payload.pageSize || { width: 58000, height: 210000 }
+  const printWindow = new BrowserWindow({
+    width: 480,
+    height: 860,
+    show: true,
+    autoHideMenuBar: true,
+    resizable: false,
+    title: 'Receipt Preview',
+    webPreferences: {
+      contextIsolation: false,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  })
+
+  printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+
+  await new Promise((resolve) => {
+    printWindow.webContents.once('did-finish-load', resolve)
+  })
+
+  printWindow.webContents.print({
+    silent: false,
+    printBackground: true,
+    margins: { marginType: 'none' },
+    preferCSSPageSize: true,
+    pageSize,
+    landscape: false
+  })
+
+  return true
+})
+
 app.on('before-quit', stopVerification)
 app.on('before-quit', stopEnrollment)
 

@@ -43,3 +43,7 @@ contextBridge.exposeInMainWorld('fingerprintEnrollment', {
 	isRunning: () => ipcRenderer.invoke('fingerprint-enrollment-status'),
 	stop: () => ipcRenderer.invoke('fingerprint-enrollment-stop')
 })
+
+contextBridge.exposeInMainWorld('electronPrint', {
+	printReceipt: (payload = {}) => ipcRenderer.invoke('print-receipt', payload)
+})
