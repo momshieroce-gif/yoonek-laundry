@@ -79,6 +79,26 @@
             class="sale-input"
           />
         </div>
+        <div class="col-12 col-sm-3">
+          <q-input
+            v-model="startTime"
+            label="Start Time"
+            type="time"
+            outlined
+            dense
+            class="sale-input"
+          />
+        </div>
+        <div class="col-12 col-sm-3">
+          <q-input
+            v-model="endTime"
+            label="End Time"
+            type="time"
+            outlined
+            dense
+            class="sale-input"
+          />
+        </div>
       </div>
     </q-card>
 
@@ -389,6 +409,8 @@ const searchText = ref('')
 const selectedBranch = ref('')
 const startDate = ref('')
 const endDate = ref('')
+const startTime = ref('')
+const endTime = ref('')
 
 const minDate = computed(() => {
   if (userStore.isAdmin) return undefined
@@ -408,7 +430,7 @@ const salesColumns = [
   { name: 'amount', label: 'Total', field: row => row.total ?? row.amount, align: 'right' },
   { name: 'weight', label: 'Weight (kg)', field: 'weight', align: 'right' },
   { name: 'status', label: 'Status', field: 'status', align: 'center' },
-  { name: 'date', label: 'Date', field: 'date', align: 'left' },
+  { name: 'date', label: 'Date / Time', field: row => row.dateTime || row.date || 'N/A', align: 'left' },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
 
@@ -423,6 +445,41 @@ const branchOptions = computed(() =>
     value: branch.id
   }))
 )
+
+function buildFilterDateTime(dateStr, timeStr, isEnd = false) {
+  if (!dateStr) return null
+  const [year, month, day] = dateStr.split('-').map(Number)
+  if (!year || !month || !day) return null
+
+  let hours = isEnd ? 23 : 0
+  let minutes = isEnd ? 59 : 0
+  let seconds = isEnd ? 59 : 0
+  let milliseconds = isEnd ? 999 : 0
+
+  if (timeStr) {
+    const [h, m] = timeStr.split(':').map(Number)
+    if (Number.isFinite(h) && Number.isFinite(m)) {
+      hours = h
+      minutes = m
+      seconds = isEnd ? 59 : 0
+      milliseconds = isEnd ? 999 : 0
+    }
+  }
+
+  return new Date(year, month - 1, day, hours, minutes, seconds, milliseconds)
+}
+
+function formatSaleDateTime(date) {
+  if (!date) return 'N/A'
+  return date.toLocaleString('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
 
 const filteredSales = computed(() => {
   let result = sales.value
@@ -439,12 +496,16 @@ const filteredSales = computed(() => {
     result = result.filter(sale => sale.branchId === selectedBranch.value)
   }
 
-  if (startDate.value) {
-    result = result.filter(sale => sale.date >= startDate.value)
+  const startBoundary = buildFilterDateTime(startDate.value, startTime.value)
+  if (startBoundary) {
+    const startTs = startBoundary.getTime()
+    result = result.filter(sale => Number(sale.createdAtTs || 0) >= startTs)
   }
 
-  if (endDate.value) {
-    result = result.filter(sale => sale.date <= endDate.value)
+  const endBoundary = buildFilterDateTime(endDate.value, endTime.value, true)
+  if (endBoundary) {
+    const endTs = endBoundary.getTime()
+    result = result.filter(sale => Number(sale.createdAtTs || 0) <= endTs)
   }
 
   return result
@@ -482,26 +543,29 @@ async function loadSales() {
   try {
     const constraints = [orderBy('createdAt', 'desc')]
 
-    if (startDate.value) {
-      const start = new Date(startDate.value)
-      start.setHours(0, 0, 0, 0)
+    const start = buildFilterDateTime(startDate.value, startTime.value)
+    if (start) {
       constraints.push(where('createdAt', '>=', start))
     }
 
-    if (endDate.value) {
-      const end = new Date(endDate.value)
-      end.setHours(23, 59, 59, 999)
+    const end = buildFilterDateTime(endDate.value, endTime.value, true)
+    if (end) {
       constraints.push(where('createdAt', '<=', end))
     }
 
     const q = query(collection(db, 'sales'), ...constraints)
 
     const snapshot = await getDocs(q)
-    sales.value = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      date: doc.data().createdAt?.toDate()?.toLocaleDateString('en-CA') || 'N/A'
-    }))
+    sales.value = snapshot.docs.map(doc => {
+      const createdAtDate = doc.data().createdAt?.toDate()
+      return {
+        id: doc.id,
+        ...doc.data(),
+        date: createdAtDate?.toLocaleDateString('en-CA') || 'N/A',
+        dateTime: formatSaleDateTime(createdAtDate),
+        createdAtTs: createdAtDate?.getTime() || 0
+      }
+    })
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -512,7 +576,7 @@ async function loadSales() {
   }
 }
 
-watch([startDate, endDate], () => {
+watch([startDate, endDate, startTime, endTime], () => {
   loadSales()
 })
 
@@ -702,6 +766,8 @@ async function handleSaveSale() {
   try {
     const isEditing = !!editingSale.value
     let writePromise
+    const currentUserId = userStore.user?.uid || ''
+    const currentUserName = userStore.userData?.displayName || userStore.userData?.email || 'User'
 
     const saleDocRef = isEditing
       ? doc(db, 'sales', editingSale.value.id)
@@ -716,6 +782,8 @@ async function handleSaveSale() {
     if (isEditing) {
       writePromise = updateDoc(saleDocRef, {
         ...formData,
+        userId: currentUserId,
+        userName: currentUserName,
         service: serviceRecords,
         amount: serviceTotal,
         items: saleItems.value,
@@ -725,11 +793,13 @@ async function handleSaveSale() {
     } else {
       writePromise = setDoc(saleDocRef, {
         ...formData,
+        userId: currentUserId,
+        userName: currentUserName,
         service: serviceRecords,
         amount: serviceTotal,
         items: saleItems.value,
         total: overallTotal.value,
-        createdBy: userStore.user.uid,
+        createdBy: currentUserId,
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -754,6 +824,19 @@ async function handleSaveSale() {
         type: 'warning',
         message: 'No internet detected. Sale saved locally and will upload automatically when back online.'
       })
+    }
+
+    const saleToPrint = {
+      id: saleDocRef.id,
+      branchId: saleForm.value.branchId,
+      invoiceNo: saleForm.value.invoiceNo,
+      customerName: saleForm.value.customerName,
+      service: serviceRecords,
+      amount: serviceTotal,
+      items: saleItems.value.map(item => ({ ...item })),
+      total: overallTotal.value,
+      status: saleForm.value.status,
+      date: editingSale.value?.dateTime || editingSale.value?.date || formatSaleDateTime(new Date())
     }
 
     // Deduct selected inventory quantities from stock and record stock out transactions
@@ -789,6 +872,8 @@ async function handleSaveSale() {
         }).catch(err => console.warn('Failed to create stock out transaction for', group.name, err))
       })
     }
+
+    printSale(saleToPrint)
 
     showAddDialog.value = false
     editingSale.value = null
@@ -982,16 +1067,83 @@ function printSale(sale) {
 
 function printReport() {
   const branch = branchOptions.value.find(b => b.value === selectedBranch.value)?.label || 'All Branches'
-  const reportColumns = salesColumns.filter(c => c.name !== 'actions')
-  const headerHtml = reportColumns.map(c => `<th>${c.label}</th>`).join('')
-  const rowsHtml = filteredSales.value.map(sale => {
-    const cells = reportColumns.map(c => {
-      let val = sale[c.field] ?? ''
-      if (c.name === 'amount') val = formatCurrency(sale.amount)
-      return `<td>${val}</td>`
-    }).join('')
-    return `<tr>${cells}</tr>`
+  const periodStart = startDate.value
+    ? `${startDate.value} ${startTime.value || '00:00'}`
+    : 'All'
+  const periodEnd = endDate.value
+    ? `${endDate.value} ${endTime.value || '23:59'}`
+    : 'All'
+
+  const escapeHtml = (value) => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+  const serviceLines = []
+  let serviceTotal = 0
+
+  filteredSales.value.forEach(sale => {
+    const services = Array.isArray(sale.service) ? sale.service : (sale.service ? [sale.service] : [])
+    services.forEach((service, index) => {
+      const name = getServiceName(service) || 'Unknown Service'
+      let price = 0
+      if (service && typeof service === 'object') {
+        price = Number(service.price || 0)
+      } else if (typeof service === 'string' && services.length === 1 && index === 0) {
+        price = Number(sale.amount || 0)
+      }
+      serviceTotal += price
+      serviceLines.push(`<div class="row"><span>${escapeHtml(name)}</span><span>${formatCurrency(price)}</span></div>`)
+    })
+  })
+
+  const itemLines = []
+  let itemTotal = 0
+
+  filteredSales.value.forEach(sale => {
+    const items = Array.isArray(sale.items) ? sale.items : []
+    items.forEach(item => {
+      const name = item?.name || 'Unknown Item'
+      const price = Number(item?.price || 0)
+      itemTotal += price
+      itemLines.push(`<div class="row"><span>${escapeHtml(name)}</span><span>${formatCurrency(price)}</span></div>`)
+    })
+  })
+
+  const paymentTypes = ['Gcash', 'Cash', 'Bank Transfer']
+  const paymentBuckets = {
+    Gcash: [],
+    Cash: [],
+    'Bank Transfer': []
+  }
+
+  filteredSales.value.forEach(sale => {
+    const paymentType = paymentTypes.find(type => type.toLowerCase() === String(sale.paymentType || '').toLowerCase())
+    if (!paymentType) return
+    const total = Number(sale.total ?? sale.amount ?? 0)
+    paymentBuckets[paymentType].push({
+      label: sale.invoiceNo || sale.customerName || sale.id,
+      amount: total
+    })
+  })
+
+  const paymentsHtml = paymentTypes.map(type => {
+    const list = paymentBuckets[type]
+    const listHtml = list.length
+      ? list.map(entry => `<div class="row"><span>${escapeHtml(entry.label)}</span><span>${formatCurrency(entry.amount)}</span></div>`).join('')
+      : '<div class="muted">No records</div>'
+    const total = list.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
+    return `
+      <div class="subsection-title">${type} listing</div>
+      ${listHtml}
+      <div class="row total-row"><span>Total:</span><span>${formatCurrency(total)}</span></div>
+    `
   }).join('')
+
+  const serviceHtml = serviceLines.length ? serviceLines.join('') : '<div class="muted">No records</div>'
+  const itemHtml = itemLines.length ? itemLines.join('') : '<div class="muted">No records</div>'
 
   const printContent = `
     <!DOCTYPE html>
@@ -1024,22 +1176,65 @@ function printReport() {
           color: #000;
           font-size: 12px;
         }
-        .meta { margin-bottom: 12px; font-size: 7.2px; color: #000; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 3px 1px; text-align: left; border-bottom: 1px solid #000; }
-        th { background: #fff; color: #000; font-weight: 700; }
+        .meta { margin-bottom: 8px; font-size: 7.2px; color: #000; }
+        .section-title {
+          margin-top: 8px;
+          margin-bottom: 4px;
+          font-size: 8px;
+          font-weight: 700;
+          border-top: 1px dashed #000;
+          padding-top: 4px;
+        }
+        .subsection-title {
+          margin-top: 4px;
+          margin-bottom: 2px;
+          font-size: 7.4px;
+          font-weight: 700;
+        }
+        .row {
+          display: flex;
+          justify-content: space-between;
+          gap: 4px;
+          margin-bottom: 1px;
+        }
+        .row span:first-child {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+        .row span:last-child {
+          flex: 0 0 auto;
+          white-space: nowrap;
+          text-align: right;
+        }
+        .total-row {
+          border-top: 1px solid #000;
+          margin-top: 2px;
+          padding-top: 2px;
+          font-weight: 700;
+        }
+        .muted {
+          opacity: 0.7;
+          margin-bottom: 2px;
+        }
       </style>
     </head>
     <body onload="window.print(); window.onafterprint = () => window.close()">
       <h2>Sales Report</h2>
       <div class="meta">
         Branch: ${branch}<br>
-        Period: ${startDate.value || 'All'} to ${endDate.value || 'All'}
+        Period: ${periodStart} to ${periodEnd}
       </div>
-      <table>
-        <thead><tr>${headerHtml}</tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
+
+      <div class="section-title">Service Types:</div>
+      ${serviceHtml}
+      <div class="row total-row"><span>Total:</span><span>${formatCurrency(serviceTotal)}</span></div>
+
+      <div class="section-title">Items:</div>
+      ${itemHtml}
+      <div class="row total-row"><span>Total:</span><span>${formatCurrency(itemTotal)}</span></div>
+
+      <div class="section-title">Payments:</div>
+      ${paymentsHtml}
     </body>
     </html>
   `
@@ -1058,6 +1253,8 @@ onMounted(() => {
     const now = new Date()
     startDate.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
     endDate.value = now.toISOString().split('T')[0]
+    startTime.value = '00:00'
+    endTime.value = '23:59'
   }
 
   loadBranches()
