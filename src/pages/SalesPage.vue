@@ -124,6 +124,17 @@
             </q-badge>
           </q-td>
         </template>
+        <template v-slot:body-cell-paymentStatus="props">
+          <q-td :props="props">
+            <q-badge
+              rounded
+              class="payment-badge"
+              :class="props.row.paymentStatus === 'Paid' ? 'payment-badge--paid' : 'payment-badge--unpaid'"
+            >
+              {{ props.row.paymentStatus || 'Unpaid' }}
+            </q-badge>
+          </q-td>
+        </template>
         <template v-slot:body-cell-actions="props">
           <q-td :props="props">
             <q-btn
@@ -367,7 +378,14 @@
             />
             <div class="row justify-end q-mt-md">
               <q-btn flat rounded label="Cancel" v-close-popup class="cancel-btn q-mr-sm" />
-              <q-btn type="submit" rounded unelevated label="Save" class="save-btn" :loading="loading" />
+              <q-btn
+                type="submit"
+                rounded
+                unelevated
+                :label="editingSale ? 'Update' : 'Save'"
+                :class="['save-btn', editingSale ? 'update-btn' : 'create-btn']"
+                :loading="loading"
+              />
             </div>
           </q-form>
         </q-card-section>
@@ -429,7 +447,7 @@ const salesColumns = [
   }, align: 'left' },
   { name: 'amount', label: 'Total', field: row => row.total ?? row.amount, align: 'right' },
   { name: 'weight', label: 'Weight (kg)', field: 'weight', align: 'right' },
-  { name: 'status', label: 'Status', field: 'status', align: 'center' },
+  { name: 'paymentStatus', label: 'Payment Status', field: 'paymentStatus', align: 'center' },
   { name: 'date', label: 'Date / Time', field: row => row.dateTime || row.date || 'N/A', align: 'left' },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
@@ -839,6 +857,34 @@ async function handleSaveSale() {
       date: editingSale.value?.dateTime || editingSale.value?.date || formatSaleDateTime(new Date())
     }
 
+    const existingSale = sales.value.find(s => s.id === saleDocRef.id)
+    const createdAtDate = existingSale?.createdAtTs
+      ? new Date(existingSale.createdAtTs)
+      : new Date()
+    const updatedSaleRecord = {
+      ...(existingSale || {}),
+      ...formData,
+      id: saleDocRef.id,
+      userId: currentUserId,
+      userName: currentUserName,
+      service: serviceRecords,
+      amount: serviceTotal,
+      items: saleItems.value.map(item => ({ ...item })),
+      total: overallTotal.value,
+      date: createdAtDate.toLocaleDateString('en-CA'),
+      dateTime: formatSaleDateTime(createdAtDate),
+      createdAtTs: createdAtDate.getTime(),
+      updatedAt: new Date()
+    }
+
+    if (isEditing) {
+      sales.value = sales.value.map(sale =>
+        sale.id === saleDocRef.id ? updatedSaleRecord : sale
+      )
+    } else {
+      sales.value = [updatedSaleRecord, ...sales.value]
+    }
+
     // Deduct selected inventory quantities from stock and record stock out transactions
     const wasCompleted = editingSale.value?.status === 'Completed'
     if (saleForm.value.status === 'Completed' && !wasCompleted) {
@@ -878,7 +924,10 @@ async function handleSaveSale() {
     showAddDialog.value = false
     editingSale.value = null
     resetForm()
-    await loadSales()
+
+    if (result === 'synced') {
+      await loadSales()
+    }
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -1361,6 +1410,25 @@ onMounted(() => {
   font-size: 0.8rem;
 }
 
+.payment-badge {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.payment-badge--paid {
+  background: rgba(76, 175, 80, 0.16);
+  color: #1B5E20;
+  border-color: rgba(76, 175, 80, 0.35);
+}
+
+.payment-badge--unpaid {
+  background: rgba(233, 30, 140, 0.12);
+  color: #AD1457;
+  border-color: rgba(233, 30, 140, 0.35);
+}
+
 .action-edit {
   color: #E91E8C;
   transition: transform 0.2s ease;
@@ -1434,5 +1502,18 @@ onMounted(() => {
 .save-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 14px 36px rgba(233, 30, 140, 0.45);
+}
+
+.create-btn {
+  background: linear-gradient(135deg, #E91E8C 0%, #FF69B4 100%);
+}
+
+.update-btn {
+  background: linear-gradient(135deg, #1976D2 0%, #42A5F5 100%);
+  box-shadow: 0 10px 28px rgba(25, 118, 210, 0.35);
+}
+
+.update-btn:hover {
+  box-shadow: 0 14px 36px rgba(25, 118, 210, 0.45);
 }
 </style>
