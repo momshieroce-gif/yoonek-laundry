@@ -93,11 +93,10 @@ module.exports = configure(function (ctx) {
       packager: {
         asar: true,
         overwrite: true,
-        extraResources: [
-          {
-            from: 'fingerprint-bridge',
-            to: 'fingerprint-bridge'
-          }
+        // @electron/packager only supports a flat list of paths here (unlike electron-builder's
+        // extraResources: [{from, to}]); each entry is copied into resources/ using its basename.
+        extraResource: [
+          '../fingerprint-bridge'
         ],
         icon: 'assets/icon.png'
       },

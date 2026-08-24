@@ -8,11 +8,12 @@ const platform = process.platform || os.platform()
 
 let mainWindow
 let verificationProcess
+let enrollmentProcess
 
 function verificationDirectory () {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'fingerprint-bridge')
-    : path.resolve(__dirname, '..', 'fingerprint-bridge')
+    : path.resolve(__dirname, '..', '..', '..', 'fingerprint-bridge')
 }
 
 function startVerification () {
@@ -20,25 +21,95 @@ function startVerification () {
 
   const directory = verificationDirectory()
   const batchFile = path.join(directory, 'run-verification.bat')
-  verificationProcess = spawn('cmd.exe', ['/c', batchFile], {
+  const commandInterpreter = process.env.ComSpec || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe')
+  const launchedProcess = spawn(commandInterpreter, ['/c', batchFile], {
     cwd: directory,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
   })
-  verificationProcess.stdout.on('data', (data) => console.log('[fingerprint-verification]', data.toString().trim()))
-  verificationProcess.stderr.on('data', (data) => console.error('[fingerprint-verification]', data.toString().trim()))
-  verificationProcess.on('error', (error) => console.error('Could not start fingerprint verification:', error))
-  verificationProcess.on('exit', (code) => {
+  verificationProcess = launchedProcess
+  launchedProcess.stdout.on('data', (data) => console.log('[fingerprint-verification]', data.toString().trim()))
+  launchedProcess.stderr.on('data', (data) => console.error('[fingerprint-verification]', data.toString().trim()))
+  launchedProcess.on('error', (error) => console.error('Could not start fingerprint verification:', error))
+  launchedProcess.on('exit', (code) => {
     console.log(`Fingerprint verification stopped with code ${code}`)
-    verificationProcess = null
+    if (verificationProcess === launchedProcess) verificationProcess = null
   })
   return true
 }
 
 function stopVerification () {
-  if (!verificationProcess || verificationProcess.exitCode !== null) return
-  verificationProcess.kill()
+  if (!verificationProcess || verificationProcess.exitCode !== null) return Promise.resolve()
+
+  const processId = verificationProcess.pid
   verificationProcess = null
+  if (platform !== 'win32') return Promise.resolve()
+
+  return new Promise((resolve) => {
+    const taskkillPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe')
+    const taskkill = spawn(taskkillPath, ['/pid', String(processId), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    taskkill.on('error', (error) => {
+      console.error('Could not stop fingerprint verification:', error)
+      resolve()
+    })
+    taskkill.on('exit', resolve)
+  })
+}
+
+async function restartVerification () {
+  await stopVerification()
+  return startVerification()
+}
+
+function startEnrollment () {
+  if (enrollmentProcess && enrollmentProcess.exitCode === null) return false
+
+  const directory = verificationDirectory()
+  const batchFile = path.join(directory, 'run-enrollment.bat')
+  const commandInterpreter = process.env.ComSpec || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe')
+  const launchedProcess = spawn(commandInterpreter, ['/c', batchFile], {
+    cwd: directory,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  enrollmentProcess = launchedProcess
+  launchedProcess.stdout.on('data', (data) => console.log('[fingerprint-enrollment]', data.toString().trim()))
+  launchedProcess.stderr.on('data', (data) => console.error('[fingerprint-enrollment]', data.toString().trim()))
+  launchedProcess.on('error', (error) => console.error('Could not start fingerprint enrollment:', error))
+  launchedProcess.on('exit', (code) => {
+    console.log(`Fingerprint enrollment stopped with code ${code}`)
+    if (enrollmentProcess === launchedProcess) enrollmentProcess = null
+  })
+  return true
+}
+
+function stopEnrollment () {
+  if (!enrollmentProcess || enrollmentProcess.exitCode !== null) return Promise.resolve()
+
+  const processId = enrollmentProcess.pid
+  enrollmentProcess = null
+  if (platform !== 'win32') return Promise.resolve()
+
+  return new Promise((resolve) => {
+    const taskkillPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe')
+    const taskkill = spawn(taskkillPath, ['/pid', String(processId), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    taskkill.on('error', (error) => {
+      console.error('Could not stop fingerprint enrollment:', error)
+      resolve()
+    })
+    taskkill.on('exit', resolve)
+  })
+}
+
+async function restartEnrollment () {
+  await stopEnrollment()
+  return startEnrollment()
 }
 
 function createWindow () {
@@ -80,17 +151,64 @@ function createWindow () {
 }
 
 app.whenReady().then(createWindow)
-app.whenReady().then(startVerification)
 
+ipcMain.handle('fingerprint-verification-start', () => startVerification())
+ipcMain.handle('fingerprint-verification-restart', () => restartVerification())
 ipcMain.handle('fingerprint-verification-status', () => Boolean(
   verificationProcess && verificationProcess.exitCode === null
 ))
-ipcMain.handle('fingerprint-verification-stop', () => {
-  stopVerification()
+ipcMain.handle('fingerprint-verification-stop', async () => {
+  await stopVerification()
+  return true
+})
+
+ipcMain.handle('fingerprint-enrollment-start', () => startEnrollment())
+ipcMain.handle('fingerprint-enrollment-restart', () => restartEnrollment())
+ipcMain.handle('fingerprint-enrollment-status', () => Boolean(
+  enrollmentProcess && enrollmentProcess.exitCode === null
+))
+ipcMain.handle('fingerprint-enrollment-stop', async () => {
+  await stopEnrollment()
+  return true
+})
+
+ipcMain.handle('print-receipt', async (_event, payload = {}) => {
+  const html = payload.html || '<html><body></body></html>'
+  const pageSize = payload.pageSize || { width: 58000, height: 210000 }
+  const printWindow = new BrowserWindow({
+    width: 480,
+    height: 860,
+    show: true,
+    autoHideMenuBar: true,
+    resizable: false,
+    title: 'Receipt Preview',
+    webPreferences: {
+      contextIsolation: false,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  })
+
+  printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+
+  await new Promise((resolve) => {
+    printWindow.webContents.once('did-finish-load', resolve)
+  })
+
+  printWindow.webContents.print({
+    silent: false,
+    printBackground: true,
+    margins: { marginType: 'none' },
+    preferCSSPageSize: true,
+    pageSize,
+    landscape: false
+  })
+
   return true
 })
 
 app.on('before-quit', stopVerification)
+app.on('before-quit', stopEnrollment)
 
 app.on('window-all-closed', () => {
   if (platform !== 'darwin') {

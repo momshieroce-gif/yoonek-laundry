@@ -31,6 +31,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('fingerprintVerification', {
+	start: () => ipcRenderer.invoke('fingerprint-verification-start'),
+	restart: () => ipcRenderer.invoke('fingerprint-verification-restart'),
 	isRunning: () => ipcRenderer.invoke('fingerprint-verification-status'),
 	stop: () => ipcRenderer.invoke('fingerprint-verification-stop')
+})
+
+contextBridge.exposeInMainWorld('fingerprintEnrollment', {
+	start: () => ipcRenderer.invoke('fingerprint-enrollment-start'),
+	restart: () => ipcRenderer.invoke('fingerprint-enrollment-restart'),
+	isRunning: () => ipcRenderer.invoke('fingerprint-enrollment-status'),
+	stop: () => ipcRenderer.invoke('fingerprint-enrollment-stop')
+})
+
+contextBridge.exposeInMainWorld('electronPrint', {
+	printReceipt: (payload = {}) => ipcRenderer.invoke('print-receipt', payload)
 })
