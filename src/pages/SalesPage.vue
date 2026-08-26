@@ -1130,7 +1130,7 @@ function printReport() {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 
-  const serviceLines = []
+  const serviceGroups = {}
   let serviceTotal = 0
 
   filteredSales.value.forEach(sale => {
@@ -1144,11 +1144,17 @@ function printReport() {
         price = Number(sale.amount || 0)
       }
       serviceTotal += price
-      serviceLines.push(`<div class="row"><span>${escapeHtml(name)}</span><span>${formatCurrency(price)}</span></div>`)
+      if (!serviceGroups[name]) {
+        serviceGroups[name] = { name, count: 0, total: 0 }
+      }
+      serviceGroups[name].count += 1
+      serviceGroups[name].total += price
     })
   })
+  const serviceLines = Object.values(serviceGroups)
+    .map(group => `<div class="row"><span>${escapeHtml(group.name)} x ${group.count}</span><span>${formatCurrency(group.total)}</span></div>`)
 
-  const itemLines = []
+  const itemGroups = {}
   let itemTotal = 0
 
   filteredSales.value.forEach(sale => {
@@ -1157,9 +1163,15 @@ function printReport() {
       const name = item?.name || 'Unknown Item'
       const price = Number(item?.price || 0)
       itemTotal += price
-      itemLines.push(`<div class="row"><span>${escapeHtml(name)}</span><span>${formatCurrency(price)}</span></div>`)
+      if (!itemGroups[name]) {
+        itemGroups[name] = { name, count: 0, total: 0 }
+      }
+      itemGroups[name].count += 1
+      itemGroups[name].total += price
     })
   })
+  const itemLines = Object.values(itemGroups)
+    .map(group => `<div class="row"><span>${escapeHtml(group.name)} x ${group.count}</span><span>${formatCurrency(group.total)}</span></div>`)
 
   const paymentTypes = ['Gcash', 'Cash', 'Bank Transfer']
   const paymentBuckets = {
