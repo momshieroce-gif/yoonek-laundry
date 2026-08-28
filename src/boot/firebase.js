@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from 'firebase/auth'
-import { initializeFirestore, persistentLocalCache, persistentSingleTabManager, setLogLevel, enableNetwork, disableNetwork, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, startAfter, serverTimestamp, increment } from 'firebase/firestore'
+import { initializeFirestore, memoryLocalCache, setLogLevel, enableNetwork, disableNetwork, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, startAfter, serverTimestamp, increment } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: "AIzaSyCsv9YAbuQ8uwYLzjBkYXt3IIbl3RWKsRE",
@@ -15,9 +15,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 const auth = getAuth(app)
-// single-tab manager: Electron's file:// origin can hang the multi-tab lock negotiation and freeze the renderer
 const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
+  localCache: memoryLocalCache()
 })
 
 setLogLevel('error')
