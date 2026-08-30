@@ -267,7 +267,7 @@ function connectToVerificationEvents (retriesRemaining = 10) {
   verificationSocket.onopen = () => {
     verificationMessage.value = 'Waiting for a fingerprint scan.'
   }
-  verificationSocket.onmessage = (event) => {
+  verificationSocket.onmessage = async (event) => {
     let result
     try {
       result = JSON.parse(event.data)
@@ -279,12 +279,14 @@ function connectToVerificationEvents (retriesRemaining = 10) {
 
     console.log('Fingerprint attendance verification:', result)
     verificationMessage.value = result.message || (result.verified ? `Fingerprint verified for ${result.name}.` : 'Fingerprint did not match.')
-    $q.notify({
-      type: result.verified ? 'positive' : 'negative',
-      message: verificationMessage.value
-    })
+    
     if (result.verified) {
-      recordAttendance(result.name, result.file)
+      const logType = await recordAttendance(result.name, result.file)
+      const logTypeSuffix = logType ? ` (${logType})` : ''
+      $q.notify({
+        type: result.verified ? 'positive' : 'negative',
+        message: verificationMessage.value + logTypeSuffix
+      })
     }
     window.clearTimeout(resultResetTimer)
     resultResetTimer = window.setTimeout(() => {
@@ -352,8 +354,10 @@ async function recordAttendance (name, file) {
       ratePerHour,
       createdAt: serverTimestamp()
     })
+    return logType
   } catch (error) {
     console.error('Could not record attendance:', error)
+    return null
   }
 }
 

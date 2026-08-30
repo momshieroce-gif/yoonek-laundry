@@ -351,6 +351,28 @@
               dense
               class="sale-input"
             />
+            <div v-if="saleForm.paymentType === 'Cash'" class="cash-panel q-mb-md">
+              <q-input
+                v-model.number="saleForm.enterAmount"
+                label="Enter Amount"
+                type="number"
+                step="0.01"
+                outlined
+                dense
+                class="sale-input cash-panel__input"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="fa-solid fa-peso-sign" color="pink-5" />
+                </template>
+              </q-input>
+              <div class="cash-panel__change" :class="changeAmount < 0 ? 'cash-panel__change--negative' : 'cash-panel__change--positive'">
+                <div class="cash-panel__label">
+                  <q-icon :name="changeAmount < 0 ? 'error_outline' : 'check_circle'" size="18px" />
+                  {{ changeAmount < 0 ? 'Insufficient Amount' : 'Change' }}
+                </div>
+                <div class="cash-panel__value">{{ formatCurrency(Math.abs(changeAmount)) }}</div>
+              </div>
+            </div>
             <q-select
               v-model="saleForm.paymentStatus"
               label="Payment Status"
@@ -620,6 +642,7 @@ const saleForm = ref({
   status: 'Pending',
   paymentStatus: 'Unpaid',
   paymentType: 'Cash',
+  enterAmount: 0,
   notes: ''
 })
 
@@ -717,9 +740,16 @@ function getServiceTotal(name) {
   return Number(((price * weight) / min).toFixed(2))
 }
 
-const overallTotal = computed(() =>
-  saleForm.value.services.reduce((sum, service) => sum + Number(service.price || 0), 0) +
-  saleItems.value.reduce((sum, item) => sum + Number(item.price || 0), 0)
+const overallTotal = computed(() => {
+  const servicesTotal = saleForm.value.services.length
+    ? saleForm.value.services.reduce((sum, service) => sum + Number(service.price || 0), 0)
+    : Number(saleForm.value.amount || 0)
+  const itemsTotal = saleItems.value.reduce((sum, item) => sum + Number(item.price || 0), 0)
+  return Number((servicesTotal + itemsTotal).toFixed(2))
+})
+
+const changeAmount = computed(() =>
+  Number((Number(saleForm.value.enterAmount || 0) - overallTotal.value).toFixed(2))
 )
 
 const groupedSaleItems = computed(() => {
@@ -770,6 +800,7 @@ function editSale(sale) {
     status: sale.status,
     paymentStatus: sale.paymentStatus,
     paymentType: sale.paymentType,
+    enterAmount: sale.enterAmount || 0,
     notes: sale.notes
   }
   saleForm.value.services.forEach(service => {
@@ -796,10 +827,16 @@ async function handleSaveSale() {
       .map(s => ({ name: getServiceName(s.name), price: Number(s.price || 0) }))
       .filter(s => s.name)
     const serviceTotal = serviceRecords.reduce((sum, s) => sum + Number(s.price || 0), 0)
+    const isCashPayment = formData.paymentType === 'Cash'
+    if (!isCashPayment) delete formData.enterAmount
+    const cashFields = isCashPayment
+      ? { enterAmount: Number(formData.enterAmount || 0), change: changeAmount.value }
+      : { enterAmount: null, change: null }
 
     if (isEditing) {
       writePromise = updateDoc(saleDocRef, {
         ...formData,
+        ...cashFields,
         userId: currentUserId,
         userName: currentUserName,
         service: serviceRecords,
@@ -811,6 +848,7 @@ async function handleSaveSale() {
     } else {
       writePromise = setDoc(saleDocRef, {
         ...formData,
+        ...cashFields,
         userId: currentUserId,
         userName: currentUserName,
         service: serviceRecords,
@@ -984,6 +1022,7 @@ function resetForm() {
     status: 'Pending',
     paymentStatus: 'Unpaid',
     paymentType: 'Cash',
+    enterAmount: 0,
     notes: ''
   }
   saleItems.value = []
@@ -1039,7 +1078,7 @@ function printSale(sale) {
             background: #fff;
             color: #000;
             font-family: 'Segoe UI', sans-serif;
-            font-size: 7.2px;
+            font-size: 10px;
             line-height: 1.2;
             box-sizing: border-box;
             overflow: hidden;
@@ -1470,6 +1509,48 @@ onMounted(() => {
 .action-print:hover {
   transform: scale(1.15);
   background: rgba(233, 30, 140, 0.1);
+}
+
+/* ===== Cash payment panel ===== */
+.cash-panel {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(233, 30, 140, 0.15);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.cash-panel__input {
+  margin-bottom: 12px;
+}
+
+.cash-panel__change {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.cash-panel__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.cash-panel__value {
+  font-size: 1.15rem;
+}
+
+.cash-panel__change--positive {
+  background: rgba(76, 175, 80, 0.14);
+  color: #1B5E20;
+}
+
+.cash-panel__change--negative {
+  background: rgba(233, 30, 140, 0.12);
+  color: #AD1457;
 }
 
 /* ===== Dialog ===== */
