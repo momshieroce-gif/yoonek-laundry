@@ -166,6 +166,21 @@
             <q-item-label>Attendance</q-item-label>
           </q-item-section>
         </q-item>
+
+        <q-item
+          v-if="userStore.isAdmin"
+          clickable
+          v-ripple
+          @click="navigateTo('cash-advances')"
+          :class="['sidebar-item', isActiveRoute('cash-advances') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="account_balance_wallet" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Cash Advance</q-item-label>
+          </q-item-section>
+        </q-item>
       </q-list>
 
       <!-- User mini card at bottom -->

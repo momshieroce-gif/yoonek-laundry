@@ -107,11 +107,11 @@
             <q-btn
               color="pink-7"
               icon="print"
-              label="Print"
+              label="Print Payslip"
               outline
-              :loading="printingAttendance"
+              :loading="printingPaySlip"
               :disable="!invoiceStartDate || !invoiceEndDate"
-              @click="printAttendanceInvoice"
+              @click="printPaySlip"
             />
           </div>
         </div>
@@ -216,28 +216,60 @@
               color="pink-7"
               :rules="[(val) => Number.isFinite(Number(val)) && Number(val) >= 0 || 'No. of hours must be 0 or more']"
             />
+            <q-input
+              v-model.number="editAttendanceForm.ratePerHour"
+              outlined
+              dense
+              type="number"
+              min="0"
+              step="0.01"
+              prefix="₱"
+              label="Rate Per Hour"
+              color="pink-7"
+              :rules="[(val) => Number.isFinite(Number(val)) && Number(val) >= 0 || 'Rate per hour must be 0 or more']"
+            />
+            <q-input
+              v-model="editAttendanceForm.createdAt"
+              outlined
+              dense
+              type="datetime-local"
+              label="Date & Time"
+              color="pink-7"
+              :rules="[(val) => !!val && !Number.isNaN(buildManilaDateTime(val).getTime()) || 'Valid date and time are required']"
+            />
           </q-card-section>
 
           <q-card-actions align="right">
             <q-btn flat label="Cancel" color="grey-7" v-close-popup />
+            <q-btn
+              outline
+              icon="content_copy"
+              label="Create Copy"
+              color="pink-7"
+              :loading="copyingAttendance"
+              :disable="savingAttendanceEdit"
+              @click="createAttendanceCopy"
+            />
             <q-btn
               unelevated
               type="submit"
               label="Submit"
               color="pink-7"
               :loading="savingAttendanceEdit"
+              :disable="copyingAttendance"
             />
           </q-card-actions>
         </q-form>
       </q-card>
     </q-dialog>
+
   </q-page>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { db, collection, doc, query, where, orderBy, limit, startAfter, getDocs, addDoc, updateDoc, deleteDoc, serverTimestamp } from '../boot/firebase'
+import { db, collection, doc, query, where, orderBy, limit, startAfter, getDoc, getDocs, addDoc, updateDoc, deleteDoc, serverTimestamp } from '../boot/firebase'
 import { useUserStore } from '../stores/user'
 
 const $q = useQuasar()
@@ -324,15 +356,18 @@ const selectedAttendanceName = ref(null)
 const loadingAttendance = ref(false)
 const loadingAttendanceNames = ref(false)
 const creatingRate = ref(false)
-const printingAttendance = ref(false)
+const printingPaySlip = ref(false)
 const invoiceStartDate = ref('')
 const invoiceEndDate = ref('')
 const editAttendanceDialog = ref(false)
 const savingAttendanceEdit = ref(false)
+const copyingAttendance = ref(false)
 const editingAttendanceId = ref(null)
 const editAttendanceForm = ref({
   logType: 'In',
-  noOfHours: 0
+  noOfHours: 0,
+  ratePerHour: 0,
+  createdAt: ''
 })
 const hasNextAttendancePage = ref(false)
 const currentAttendancePage = ref(0)
@@ -363,6 +398,25 @@ function getTodayInManilaInputValue () {
 function buildManilaDateBoundary (dateValue, endOfDay = false) {
   const time = endOfDay ? '23:59:59.999' : '00:00:00.000'
   return new Date(`${dateValue}T${time}+08:00`)
+}
+
+function buildManilaDateTime (dateTimeValue) {
+  return new Date(`${dateTimeValue}:00+08:00`)
+}
+
+function formatManilaDateTimeInput (date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date)
+  const dateParts = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${dateParts.year}-${dateParts.month}-${dateParts.day}T${dateParts.hour}:${dateParts.minute}`
 }
 
 function formatNumber (value) {
@@ -418,13 +472,16 @@ async function loadAttendancePage (cursor) {
     const pageDocs = docs.slice(0, ATTENDANCE_PAGE_SIZE)
     attendanceRows.value = pageDocs.map((docSnap) => {
       const data = docSnap.data()
+      const createdAtDate = data.createdAt?.toDate?.() || data.createdAt
       return {
         id: docSnap.id,
         name: data.name,
         logType: data.logType,
         file: data.file,
         noOfHours: Number(data.noOfHours) || 0,
-        createdAt: formatAttendanceTimestamp(data.createdAt)
+        ratePerHour: Number(data.ratePerHour) || 0,
+        createdAt: formatAttendanceTimestamp(data.createdAt),
+        createdAtDate
       }
     })
     lastDocOnPage = pageDocs[pageDocs.length - 1] || null
@@ -500,8 +557,12 @@ async function createRate () {
   })
 }
 
-async function printAttendanceInvoice () {
+async function printPaySlip () {
   if (!userStore.isAdmin) return
+  if (!selectedAttendanceName.value) {
+    $q.notify({ type: 'warning', message: 'Please select a name before printing a payslip.' })
+    return
+  }
   if (!invoiceStartDate.value || !invoiceEndDate.value) {
     $q.notify({ type: 'warning', message: 'Please select a start date and end date.' })
     return
@@ -514,69 +575,83 @@ async function printAttendanceInvoice () {
     return
   }
 
-  printingAttendance.value = true
+  printingPaySlip.value = true
   try {
-    const snapshot = await getDocs(query(
-      collection(db, 'attendance'),
-      where('logType', '==', 'Out')
-    ))
-    const groupedByName = new Map()
+    const employeeName = selectedAttendanceName.value
+    const [attendanceSnapshot, cashAdvanceSnapshot] = await Promise.all([
+      getDocs(query(collection(db, 'attendance'), where('logType', '==', 'Out'))),
+      getDocs(query(collection(db, 'cashAdvances'), where('name', '==', employeeName)))
+    ])
 
-    snapshot.docs.forEach((docSnap) => {
-      const data = docSnap.data()
-      const createdAt = data.createdAt?.toDate?.() || data.createdAt
-      if (!(createdAt instanceof Date) || createdAt < startDate || createdAt > endDate) return
+    const payslipRows = attendanceSnapshot.docs
+      .map((docSnap) => {
+        const data = docSnap.data()
+        const createdAt = data.createdAt?.toDate?.() || data.createdAt
+        const noOfHours = Number(data.noOfHours) || 0
+        const ratePerHour = Number(data.ratePerHour) || 0
+        return {
+          name: data.name,
+          createdAt,
+          noOfHours,
+          ratePerHour,
+          total: noOfHours * ratePerHour
+        }
+      })
+      .filter((row) => (
+        row.name === employeeName &&
+        row.createdAt instanceof Date &&
+        row.createdAt >= startDate &&
+        row.createdAt <= endDate
+      ))
+      .sort((first, second) => first.createdAt - second.createdAt)
 
-      const name = data.name || 'Unknown'
-      const noOfHours = Number(data.noOfHours) || 0
-      const ratePerHour = Number(data.ratePerHour) || 0
-      const total = noOfHours * ratePerHour
-      const current = groupedByName.get(name) || { name, noOfHours: 0, total: 0 }
-      current.noOfHours += noOfHours
-      current.total += total
-      groupedByName.set(name, current)
-    })
-
-    const invoiceRows = [...groupedByName.values()]
-      .map((row) => ({
-        ...row,
-        ratePerHour: row.noOfHours > 0 ? row.total / row.noOfHours : 0
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-    const grandTotal = invoiceRows.reduce((sum, row) => sum + row.total, 0)
-
-    if (invoiceRows.length === 0) {
-      $q.notify({ type: 'warning', message: 'No Out attendance logs found for the selected dates.' })
+    if (payslipRows.length === 0) {
+      $q.notify({ type: 'warning', message: `No Out attendance logs found for ${employeeName} in the selected dates.` })
       return
     }
 
-    const invoiceRef = await addDoc(collection(db, 'serviceInvoices'), {
+    const noOfHours = payslipRows.reduce((sum, row) => sum + row.noOfHours, 0)
+    const grossTotal = payslipRows.reduce((sum, row) => sum + row.total, 0)
+    const ratePerHour = noOfHours > 0 ? grossTotal / noOfHours : 0
+    const cashAdvanceTotal = cashAdvanceSnapshot.docs.reduce((sum, docSnap) => {
+      const data = docSnap.data()
+      const createdAt = data.createdAt?.toDate?.() || data.createdAt
+      if (!(createdAt instanceof Date) || createdAt < startDate || createdAt > endDate) return sum
+      return sum + (Number(data.amount) || 0)
+    }, 0)
+    const grandTotal = grossTotal - cashAdvanceTotal
+
+    await addDoc(collection(db, 'payslips'), {
+      name: employeeName,
       startDate,
       endDate,
-      attendance: invoiceRows.map((row) => ({
-        name: row.name,
-        noOfHours: row.noOfHours,
-        ratePerHour: row.ratePerHour,
-        total: row.total
-      })),
+      noOfHours,
+      ratePerHour,
+      grossTotal,
+      cashAdvanceTotal,
       grandTotal,
       createdAt: serverTimestamp(),
       createdBy: userStore.user?.uid || null
     })
 
-    const tableRows = invoiceRows.map((row) => `
+    const tableRows = payslipRows.map((row) => `
       <tr>
-        <td>${escapeHtml(row.name)}</td>
+        <td>${escapeHtml(row.createdAt.toLocaleString('en-PH', {
+          timeZone: 'Asia/Manila',
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        }))}</td>
         <td class="number">${formatNumber(row.noOfHours)}</td>
         <td class="number">${formatNumber(row.ratePerHour)}</td>
         <td class="number">${formatNumber(row.total)}</td>
       </tr>
     `).join('')
+    const cashAdvanceDisplay = cashAdvanceTotal > 0 ? formatNumber(cashAdvanceTotal) : 'N/A'
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Service Invoice</title>
+          <title>Payslip - ${escapeHtml(employeeName)}</title>
           <style>
             body { font-family: Arial, sans-serif; color: #222; padding: 24px; }
             h1 { margin: 0 0 8px; font-size: 24px; }
@@ -585,20 +660,21 @@ async function printAttendanceInvoice () {
             th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
             th { background: #f6f6f6; }
             .number { text-align: right; }
+            .cash-advance { margin-top: 16px; text-align: right; color: #555; }
             .grand-total { margin-top: 16px; text-align: right; font-size: 18px; font-weight: 700; }
           </style>
         </head>
         <body onload="window.print()">
-          <h1>Service Invoice</h1>
+          <h1>Payslip</h1>
           <div class="meta">
-            <div>Invoice ID: ${escapeHtml(invoiceRef.id)}</div>
+            <div>Name: ${escapeHtml(employeeName)}</div>
             <div>Start Date: ${escapeHtml(invoiceStartDate.value)}</div>
             <div>End Date: ${escapeHtml(invoiceEndDate.value)}</div>
           </div>
           <table>
             <thead>
               <tr>
-                <th>Name</th>
+                <th>Date</th>
                 <th>No. of Hours</th>
                 <th>Rate Per Hour</th>
                 <th>Total</th>
@@ -606,6 +682,7 @@ async function printAttendanceInvoice () {
             </thead>
             <tbody>${tableRows}</tbody>
           </table>
+          <div class="cash-advance">Cash Advance: ${cashAdvanceDisplay}</div>
           <div class="grand-total">Grand Total: ${formatNumber(grandTotal)}</div>
         </body>
       </html>
@@ -617,12 +694,12 @@ async function printAttendanceInvoice () {
       printWindow.focus()
     }
 
-    $q.notify({ type: 'positive', message: 'Service invoice created.' })
+    $q.notify({ type: 'positive', message: 'Payslip created.' })
   } catch (error) {
-    console.error('Could not print attendance invoice:', error)
-    $q.notify({ type: 'negative', message: 'Could not print attendance invoice.' })
+    console.error('Could not print payslip:', error)
+    $q.notify({ type: 'negative', message: 'Could not print payslip.' })
   } finally {
-    printingAttendance.value = false
+    printingPaySlip.value = false
   }
 }
 
@@ -630,16 +707,43 @@ function openEditAttendance (attendance) {
   editingAttendanceId.value = attendance.id
   editAttendanceForm.value = {
     logType: attendance.logType || 'In',
-    noOfHours: Number(attendance.noOfHours) || 0
+    noOfHours: Number(attendance.noOfHours) || 0,
+    ratePerHour: Number(attendance.ratePerHour) || 0,
+    createdAt: formatManilaDateTimeInput(attendance.createdAtDate)
   }
   editAttendanceDialog.value = true
+}
+
+async function createAttendanceCopy () {
+  if (!userStore.isAdmin || !editingAttendanceId.value) return
+
+  copyingAttendance.value = true
+  try {
+    const sourceSnapshot = await getDoc(doc(db, 'attendance', editingAttendanceId.value))
+    if (!sourceSnapshot.exists()) {
+      $q.notify({ type: 'warning', message: 'The attendance log no longer exists.' })
+      return
+    }
+
+    await addDoc(collection(db, 'attendance'), sourceSnapshot.data())
+    editAttendanceDialog.value = false
+    $q.notify({ type: 'positive', message: 'Attendance copy created.' })
+    await reloadAttendance()
+  } catch (error) {
+    console.error('Could not copy attendance log:', error)
+    $q.notify({ type: 'negative', message: 'Could not copy attendance log.' })
+  } finally {
+    copyingAttendance.value = false
+  }
 }
 
 async function submitAttendanceEdit () {
   if (!editingAttendanceId.value) return
 
   const noOfHours = Number(editAttendanceForm.value.noOfHours)
-  if (!logTypeOptions.includes(editAttendanceForm.value.logType) || !Number.isFinite(noOfHours) || noOfHours < 0) {
+  const ratePerHour = Number(editAttendanceForm.value.ratePerHour)
+  const createdAt = buildManilaDateTime(editAttendanceForm.value.createdAt)
+  if (!logTypeOptions.includes(editAttendanceForm.value.logType) || !Number.isFinite(noOfHours) || noOfHours < 0 || !Number.isFinite(ratePerHour) || ratePerHour < 0 || Number.isNaN(createdAt.getTime())) {
     $q.notify({ type: 'warning', message: 'Please enter valid attendance details.' })
     return
   }
@@ -648,7 +752,9 @@ async function submitAttendanceEdit () {
   try {
     await updateDoc(doc(db, 'attendance', editingAttendanceId.value), {
       logType: editAttendanceForm.value.logType,
-      noOfHours
+      noOfHours,
+      ratePerHour,
+      createdAt
     })
     $q.notify({ type: 'positive', message: 'Attendance log updated.' })
     editAttendanceDialog.value = false

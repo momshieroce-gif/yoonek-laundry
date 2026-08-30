@@ -27,7 +27,8 @@ const routes = [
       { path: 'inventory-transactions', component: () => import('pages/InventoryTransactionsPage.vue') },
       { path: 'sale-items', component: () => import('pages/SaleItemPage.vue') },
       { path: 'users', component: () => import('pages/UsersPage.vue'), meta: { adminOnly: true } },
-      { path: 'attendance', component: () => import('pages/AttendancePage.vue') }
+      { path: 'attendance', component: () => import('pages/AttendancePage.vue') },
+      { path: 'cash-advances', component: () => import('pages/CashAdvancesPage.vue'), meta: { adminOnly: true } }
     ]
   },
   {
