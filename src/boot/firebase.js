@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from 'firebase/auth'
-import { initializeFirestore, memoryLocalCache, setLogLevel, enableNetwork, disableNetwork, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, startAfter, serverTimestamp, increment } from 'firebase/firestore'
+import { initializeFirestore, memoryLocalCache, setLogLevel, enableNetwork, disableNetwork, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, writeBatch, query, where, orderBy, limit, startAfter, serverTimestamp, increment } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: "AIzaSyCsv9YAbuQ8uwYLzjBkYXt3IIbl3RWKsRE",
@@ -54,6 +54,7 @@ export {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   query,
   where,
   orderBy,

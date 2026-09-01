@@ -114,6 +114,17 @@
               @click="printPaySlip"
             />
           </div>
+          <div class="col-12 col-sm-auto">
+            <q-btn
+              color="pink-7"
+              icon="post_add"
+              label="Record Employee Salary"
+              unelevated
+              :loading="recordingEmployeeSalary"
+              :disable="!selectedAttendanceName || !invoiceStartDate || !invoiceEndDate"
+              @click="recordEmployeeSalary"
+            />
+          </div>
         </div>
 
         <q-table
@@ -269,7 +280,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { db, collection, doc, query, where, orderBy, limit, startAfter, getDoc, getDocs, addDoc, updateDoc, deleteDoc, serverTimestamp } from '../boot/firebase'
+import { db, collection, doc, query, where, orderBy, limit, startAfter, getDoc, getDocs, addDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp } from '../boot/firebase'
 import { useUserStore } from '../stores/user'
 
 const $q = useQuasar()
@@ -357,6 +368,7 @@ const loadingAttendance = ref(false)
 const loadingAttendanceNames = ref(false)
 const creatingRate = ref(false)
 const printingPaySlip = ref(false)
+const recordingEmployeeSalary = ref(false)
 const invoiceStartDate = ref('')
 const invoiceEndDate = ref('')
 const editAttendanceDialog = ref(false)
@@ -700,6 +712,166 @@ async function printPaySlip () {
     $q.notify({ type: 'negative', message: 'Could not print payslip.' })
   } finally {
     printingPaySlip.value = false
+  }
+}
+
+async function recordEmployeeSalary () {
+  if (!userStore.isAdmin || !selectedAttendanceName.value) return
+  if (!invoiceStartDate.value || !invoiceEndDate.value) {
+    $q.notify({ type: 'warning', message: 'Please select a start date and end date.' })
+    return
+  }
+
+  const startDate = buildManilaDateBoundary(invoiceStartDate.value)
+  const endDate = buildManilaDateBoundary(invoiceEndDate.value, true)
+  if (endDate < startDate) {
+    $q.notify({ type: 'warning', message: 'End date must be after start date.' })
+    return
+  }
+
+  recordingEmployeeSalary.value = true
+  try {
+    const employeeName = selectedAttendanceName.value
+    const salaryId = `${encodeURIComponent(employeeName)}-${invoiceStartDate.value}-${invoiceEndDate.value}`
+    const salaryRef = doc(db, 'employeeSalaries', salaryId)
+    const [existingSalary, attendanceSnapshot, cashAdvanceSnapshot, salaryAccountSnapshot, cashAccountSnapshot] = await Promise.all([
+      getDoc(salaryRef),
+      getDocs(query(collection(db, 'attendance'), where('logType', '==', 'Out'))),
+      getDocs(query(collection(db, 'cashAdvances'), where('name', '==', employeeName))),
+      getDoc(doc(db, 'accounts', '5200')),
+      getDoc(doc(db, 'accounts', '1000'))
+    ])
+
+    if (existingSalary.exists()) {
+      $q.notify({ type: 'warning', message: 'Salary has already been recorded for this employee and period.' })
+      return
+    }
+
+    const salaryAccount = salaryAccountSnapshot.data()
+    const cashAccount = cashAccountSnapshot.data()
+    if (!salaryAccountSnapshot.exists() || salaryAccount?.type !== 'expense' || salaryAccount.isActive === false) {
+      $q.notify({ type: 'warning', message: 'Active account 5200 - Salaries and Wages Expense is required.' })
+      return
+    }
+    if (!cashAccountSnapshot.exists() || cashAccount?.type !== 'asset' || cashAccount.isActive === false) {
+      $q.notify({ type: 'warning', message: 'Active Cash account 1000 is required.' })
+      return
+    }
+
+    const attendanceLogs = attendanceSnapshot.docs
+      .map((docSnapshot) => {
+        const data = docSnapshot.data()
+        return {
+          id: docSnapshot.id,
+          name: data.name,
+          createdAt: data.createdAt?.toDate?.() || data.createdAt,
+          noOfHours: Number(data.noOfHours) || 0,
+          ratePerHour: Number(data.ratePerHour) || 0
+        }
+      })
+      .filter((row) => (
+        row.name === employeeName &&
+        row.createdAt instanceof Date &&
+        row.createdAt >= startDate &&
+        row.createdAt <= endDate
+      ))
+
+    if (!attendanceLogs.length) {
+      $q.notify({ type: 'warning', message: `No Out attendance logs found for ${employeeName} in the selected dates.` })
+      return
+    }
+
+    const grossTotal = attendanceLogs.reduce((sum, row) => sum + (row.noOfHours * row.ratePerHour), 0)
+    if (grossTotal <= 0) {
+      $q.notify({ type: 'warning', message: 'The selected attendance has no payable salary.' })
+      return
+    }
+
+    const cashAdvances = cashAdvanceSnapshot.docs
+      .map((docSnapshot) => ({ id: docSnapshot.id, ref: docSnapshot.ref, ...docSnapshot.data() }))
+      .filter((cashAdvance) => {
+        const createdAt = cashAdvance.createdAt?.toDate?.() || cashAdvance.createdAt
+        return !cashAdvance.employeeSalaryId && createdAt instanceof Date && createdAt >= startDate && createdAt <= endDate
+      })
+    const invalidAdvance = cashAdvances.find((cashAdvance) => !cashAdvance.accountId)
+    if (invalidAdvance) {
+      $q.notify({ type: 'warning', message: 'A cash advance in this period has no receivable account. Edit it before recording salary.' })
+      return
+    }
+
+    const cashAdvanceTotal = cashAdvances.reduce((sum, cashAdvance) => sum + (Number(cashAdvance.amount) || 0), 0)
+    const netTotal = grossTotal - cashAdvanceTotal
+    if (netTotal < 0) {
+      $q.notify({ type: 'warning', message: 'Cash advances exceed gross salary. Adjust the period or advances before recording.' })
+      return
+    }
+
+    $q.dialog({
+      title: 'Record Employee Salary',
+      message: `Record ${employeeName}'s salary: gross ${formatNumber(grossTotal)}, advances ${formatNumber(cashAdvanceTotal)}, net pay ${formatNumber(netTotal)}?`,
+      cancel: true,
+      persistent: true
+    }).onOk(async () => {
+      recordingEmployeeSalary.value = true
+      try {
+        const journalEntryId = `employee-salary-${salaryId}`
+        const advanceCredits = Object.entries(cashAdvances.reduce((totals, cashAdvance) => {
+          totals[cashAdvance.accountId] = (totals[cashAdvance.accountId] || 0) + (Number(cashAdvance.amount) || 0)
+          return totals
+        }, {})).map(([accountId, credit]) => ({ accountId, debit: 0, credit }))
+        const lines = [
+          { accountId: '5200', debit: grossTotal, credit: 0 },
+          ...advanceCredits
+        ]
+        if (netTotal > 0) lines.push({ accountId: '1000', debit: 0, credit: netTotal })
+
+        const batch = writeBatch(db)
+        batch.set(salaryRef, {
+          name: employeeName,
+          startDate,
+          endDate,
+          noOfHours: attendanceLogs.reduce((sum, row) => sum + row.noOfHours, 0),
+          grossTotal,
+          cashAdvanceTotal,
+          netTotal,
+          attendanceIds: attendanceLogs.map((row) => row.id),
+          cashAdvanceIds: cashAdvances.map((cashAdvance) => cashAdvance.id),
+          journalEntryId,
+          createdAt: serverTimestamp(),
+          createdBy: userStore.user?.uid || ''
+        })
+        batch.set(doc(db, 'journalEntries', journalEntryId), {
+          transactionDate: endDate,
+          description: `Employee salary for ${employeeName}`,
+          referenceType: 'employeeSalary',
+          referenceId: salaryId,
+          totalDebit: grossTotal,
+          totalCredit: grossTotal,
+          status: 'draft',
+          createdAt: serverTimestamp(),
+          createdBy: userStore.user?.uid || '',
+          lines
+        })
+        cashAdvances.forEach((cashAdvance) => {
+          batch.update(cashAdvance.ref, {
+            employeeSalaryId: salaryId,
+            settledAt: serverTimestamp()
+          })
+        })
+        await batch.commit()
+        $q.notify({ type: 'positive', message: 'Employee salary and journal entry recorded.' })
+      } catch (error) {
+        console.error('Could not record employee salary:', error)
+        $q.notify({ type: 'negative', message: 'Could not record employee salary.' })
+      } finally {
+        recordingEmployeeSalary.value = false
+      }
+    })
+  } catch (error) {
+    console.error('Could not prepare employee salary:', error)
+    $q.notify({ type: 'negative', message: 'Could not prepare employee salary.' })
+  } finally {
+    recordingEmployeeSalary.value = false
   }
 }
 

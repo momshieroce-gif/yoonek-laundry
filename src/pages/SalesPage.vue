@@ -374,6 +374,22 @@
               </div>
             </div>
             <q-select
+              v-model="saleForm.revenueAccountId"
+              label="Revenue Account"
+              :options="revenueAccountOptions"
+              outlined
+              dense
+              emit-value
+              map-options
+              class="sale-input"
+              :loading="loadingAccounts"
+              :rules="[val => !!val || 'Revenue account is required']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="account_tree" color="pink-5" />
+              </template>
+            </q-select>
+            <q-select
               v-model="saleForm.paymentStatus"
               label="Payment Status"
               :options="paymentStatusOptions"
@@ -420,7 +436,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, addDoc, setDoc, updateDoc, deleteDoc, doc, query, where, orderBy } from '../boot/firebase'
+import { db, collection, getDoc, getDocs, addDoc, updateDoc, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -439,6 +455,7 @@ onMounted(async () => {
 const loading = ref(false)
 const sales = ref([])
 const branches = ref([])
+const accounts = ref([])
 const inventory = ref([])
 const selectedInventory = ref(null)
 const selectedService = ref('')
@@ -451,6 +468,7 @@ const startDate = ref('')
 const endDate = ref('')
 const startTime = ref('')
 const endTime = ref('')
+const loadingAccounts = ref(false)
 
 const minDate = computed(() => {
   if (userStore.isAdmin) return undefined
@@ -485,6 +503,13 @@ const branchOptions = computed(() =>
     value: branch.id
   }))
 )
+
+const revenueAccountOptions = computed(() => accounts.value
+  .filter(account => account.type === 'revenue' && account.isActive !== false)
+  .map(account => ({
+    label: `${account.code} - ${account.name}`,
+    value: account.id
+  })))
 
 function buildFilterDateTime(dateStr, timeStr, isEnd = false) {
   if (!dateStr) return null
@@ -557,6 +582,21 @@ async function loadBranches() {
     branches.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
   } catch (error) {
     console.error('Error loading branches:', error)
+  }
+}
+
+async function loadAccounts() {
+  loadingAccounts.value = true
+  try {
+    const snapshot = await getDocs(collection(db, 'accounts'))
+    accounts.value = snapshot.docs
+      .map(docSnapshot => ({ id: docSnapshot.id, ...docSnapshot.data() }))
+      .sort((first, second) => first.code.localeCompare(second.code, undefined, { numeric: true }))
+  } catch (error) {
+    console.error('Error loading accounts:', error)
+    $q.notify({ type: 'negative', message: 'Failed to load sales accounts.' })
+  } finally {
+    loadingAccounts.value = false
   }
 }
 
@@ -642,6 +682,7 @@ const saleForm = ref({
   status: 'Pending',
   paymentStatus: 'Unpaid',
   paymentType: 'Cash',
+  revenueAccountId: '4000',
   enterAmount: 0,
   notes: ''
 })
@@ -800,6 +841,7 @@ function editSale(sale) {
     status: sale.status,
     paymentStatus: sale.paymentStatus,
     paymentType: sale.paymentType,
+    revenueAccountId: sale.revenueAccountId || '4000',
     enterAmount: sale.enterAmount || 0,
     notes: sale.notes
   }
@@ -814,7 +856,6 @@ async function handleSaveSale() {
   loading.value = true
   try {
     const isEditing = !!editingSale.value
-    let writePromise
     const currentUserId = userStore.user?.uid || ''
     const currentUserName = userStore.userData?.displayName || userStore.userData?.email || 'User'
 
@@ -833,33 +874,85 @@ async function handleSaveSale() {
       ? { enterAmount: Number(formData.enterAmount || 0), change: changeAmount.value }
       : { enterAmount: null, change: null }
 
+    const total = overallTotal.value
+    const debitAccountId = formData.paymentStatus === 'Paid' ? '1000' : '1200'
+    const revenueAccountId = formData.revenueAccountId
+    const debitAccount = accounts.value.find(account => account.id === debitAccountId)
+    const revenueAccount = accounts.value.find(account => account.id === revenueAccountId)
+    if (
+      !debitAccount || debitAccount.type !== 'asset' || debitAccount.isActive === false ||
+      !revenueAccount || revenueAccount.type !== 'revenue' || revenueAccount.isActive === false
+    ) {
+      throw new Error('A valid active payment account and revenue account are required.')
+    }
+
+    const journalEntryId = editingSale.value?.journalEntryId || `sale-${saleDocRef.id}`
+    const journalEntryRef = doc(db, 'journalEntries', journalEntryId)
     if (isEditing) {
-      writePromise = updateDoc(saleDocRef, {
-        ...formData,
-        ...cashFields,
-        userId: currentUserId,
-        userName: currentUserName,
-        service: serviceRecords,
-        amount: serviceTotal,
-        items: saleItems.value,
-        total: overallTotal.value,
-        updatedAt: new Date()
-      })
+      const journalSnapshot = await getDoc(journalEntryRef)
+      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
+        $q.notify({ type: 'warning', message: 'This sale cannot be changed because its journal entry is no longer a draft.' })
+        return
+      }
+    }
+    const journalStatus = 'draft'
+    const isCancelled = formData.status === 'Cancelled'
+    const saleData = {
+      ...formData,
+      ...cashFields,
+      userId: currentUserId,
+      userName: currentUserName,
+      service: serviceRecords,
+      amount: serviceTotal,
+      items: saleItems.value,
+      total,
+      journalEntryId: isCancelled ? '' : journalEntryId,
+      debitAccountId: isCancelled ? '' : debitAccountId,
+      revenueAccountId: isCancelled ? '' : revenueAccountId,
+      accountingStatus: isCancelled ? 'cancelled' : journalStatus,
+      accountingSyncedAt: serverTimestamp(),
+      updatedAt: new Date()
+    }
+    const batch = writeBatch(db)
+
+    if (isEditing) {
+      batch.update(saleDocRef, saleData)
     } else {
-      writePromise = setDoc(saleDocRef, {
-        ...formData,
-        ...cashFields,
-        userId: currentUserId,
-        userName: currentUserName,
-        service: serviceRecords,
-        amount: serviceTotal,
-        items: saleItems.value,
-        total: overallTotal.value,
+      batch.set(saleDocRef, {
+        ...saleData,
         createdBy: currentUserId,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        createdAt: new Date()
       })
     }
+
+    if (isCancelled) {
+      batch.delete(journalEntryRef)
+    } else {
+      const hasExistingJournal = Boolean(editingSale.value?.journalEntryId)
+      const transactionDate = editingSale.value?.createdAt || new Date()
+      const journalEntryData = {
+        description: `Sale ${formData.invoiceNo || saleDocRef.id}`,
+        referenceType: 'sale',
+        referenceId: saleDocRef.id,
+        totalDebit: total,
+        totalCredit: total,
+        status: journalStatus,
+        branchId: formData.branchId,
+        updatedAt: serverTimestamp(),
+        lines: [
+          { accountId: debitAccountId, debit: total, credit: 0 },
+          { accountId: revenueAccountId, debit: 0, credit: total }
+        ]
+      }
+      if (!hasExistingJournal) {
+        journalEntryData.transactionDate = transactionDate
+        journalEntryData.createdAt = transactionDate
+        journalEntryData.createdBy = editingSale.value?.createdBy || currentUserId
+      }
+      batch.set(journalEntryRef, journalEntryData, { merge: true })
+    }
+
+    const writePromise = batch.commit()
 
     writePromise.catch(err => console.warn('Queued sale failed to sync:', err))
 
@@ -909,6 +1002,10 @@ async function handleSaveSale() {
       amount: serviceTotal,
       items: saleItems.value.map(item => ({ ...item })),
       total: overallTotal.value,
+      journalEntryId: isCancelled ? '' : journalEntryId,
+      debitAccountId: isCancelled ? '' : debitAccountId,
+      revenueAccountId: isCancelled ? '' : revenueAccountId,
+      accountingStatus: isCancelled ? 'cancelled' : journalStatus,
       date: createdAtDate.toLocaleDateString('en-CA'),
       dateTime: formatSaleDateTime(createdAtDate),
       createdAtTs: createdAtDate.getTime(),
@@ -984,11 +1081,21 @@ function deleteSale(id) {
     persistent: true
   }).onOk(async () => {
     try {
+      const sale = sales.value.find((item) => item.id === id)
+      const journalEntryRef = doc(db, 'journalEntries', sale?.journalEntryId || `sale-${id}`)
+      const journalSnapshot = await getDoc(journalEntryRef)
+      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
+        $q.notify({ type: 'warning', message: 'This sale cannot be deleted because its journal entry is no longer a draft.' })
+        return
+      }
       const inventoryQuery = query(collection(db, 'inventory_transactions'), where('saleId', '==', id))
       const snapshot = await getDocs(inventoryQuery)
       const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'inventory_transactions', d.id)))
       await Promise.all(deletePromises)
-      await deleteDoc(doc(db, 'sales', id))
+      const batch = writeBatch(db)
+      batch.delete(doc(db, 'sales', id))
+      batch.delete(journalEntryRef)
+      await batch.commit()
       $q.notify({
         type: 'positive',
         message: 'Sale deleted successfully!'
@@ -1022,6 +1129,7 @@ function resetForm() {
     status: 'Pending',
     paymentStatus: 'Unpaid',
     paymentType: 'Cash',
+    revenueAccountId: '4000',
     enterAmount: 0,
     notes: ''
   }
@@ -1358,6 +1466,7 @@ onMounted(() => {
   }
 
   loadBranches()
+  loadAccounts()
   loadServiceTypes()
   loadInventory()
   loadSales()

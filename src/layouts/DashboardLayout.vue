@@ -54,7 +54,37 @@
         </q-item>
 
         <q-item
-           v-if="userStore.isAdmin"
+          v-if="userStore.isAdmin"
+          clickable
+          v-ripple
+          @click="navigateTo('accounts')"
+          :class="['sidebar-item', isActiveRoute('accounts') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="account_tree" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Accounts</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          v-if="userStore.isAdmin"
+          clickable
+          v-ripple
+          @click="navigateTo('journal-entries')"
+          :class="['sidebar-item', isActiveRoute('journal-entries') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="menu_book" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Journal Entries</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          v-if="userStore.isAdmin"
           clickable
           v-ripple
           @click="navigateTo('branches')"
@@ -65,6 +95,20 @@
           </q-item-section>
           <q-item-section>
             <q-item-label>Branches</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
+          @click="navigateTo('expenses')"
+          :class="['sidebar-item', isActiveRoute('expenses') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="receipt_long" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Expenses</q-item-label>
           </q-item-section>
         </q-item>
 
@@ -139,19 +183,7 @@
           </q-item-section>
         </q-item>
 
-        <q-item
-          clickable
-          v-ripple
-          @click="navigateToProfile"
-          :class="['sidebar-item', isActiveRoute('profile') ? 'active-item' : '']"
-        >
-          <q-item-section avatar>
-            <q-icon name="person" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label>Profile</q-item-label>
-          </q-item-section>
-        </q-item>
+        
 
         <q-item
           clickable
@@ -179,6 +211,35 @@
           </q-item-section>
           <q-item-section>
             <q-item-label>Cash Advance</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          v-if="userStore.isAdmin"
+          clickable
+          v-ripple
+          @click="navigateTo('employee-salaries')"
+          :class="['sidebar-item', isActiveRoute('employee-salaries') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="payments" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Employee Salary</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
+          @click="navigateToProfile"
+          :class="['sidebar-item', isActiveRoute('profile') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="person" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Profile</q-item-label>
           </q-item-section>
         </q-item>
       </q-list>
