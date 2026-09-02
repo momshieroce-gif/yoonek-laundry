@@ -200,7 +200,6 @@
         </q-item>
 
         <q-item
-          v-if="userStore.isAdmin"
           clickable
           v-ripple
           @click="navigateTo('cash-advances')"
