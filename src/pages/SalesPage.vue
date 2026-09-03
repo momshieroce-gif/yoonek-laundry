@@ -436,7 +436,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDoc, getDocs, addDoc, updateDoc, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
+import { db, collection, getDoc, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -897,6 +897,12 @@ async function handleSaveSale() {
     }
     const journalStatus = 'draft'
     const isCancelled = formData.status === 'Cancelled'
+    const inventoryWasDeducted = Boolean(editingSale.value?.inventoryDeductedAt) || editingSale.value?.status === 'Completed'
+    const shouldDeductInventory = !isCancelled && saleItems.value.length > 0 && !inventoryWasDeducted
+    const inventoryBranchId = userStore.userData?.branchId || ''
+    if (shouldDeductInventory && !inventoryBranchId) {
+      throw new Error('The current user does not have an assigned branch.')
+    }
     const saleData = {
       ...formData,
       ...cashFields,
@@ -911,6 +917,7 @@ async function handleSaveSale() {
       revenueAccountId: isCancelled ? '' : revenueAccountId,
       accountingStatus: isCancelled ? 'cancelled' : journalStatus,
       accountingSyncedAt: serverTimestamp(),
+      ...(shouldDeductInventory ? { inventoryDeductedAt: serverTimestamp() } : {}),
       updatedAt: new Date()
     }
     const batch = writeBatch(db)
@@ -950,6 +957,41 @@ async function handleSaveSale() {
         journalEntryData.createdBy = editingSale.value?.createdBy || currentUserId
       }
       batch.set(journalEntryRef, journalEntryData, { merge: true })
+    }
+
+    const inventoryStockUpdates = []
+    if (shouldDeductInventory) {
+      const saleBranch = branches.value.find(branch => branch.id === inventoryBranchId)
+      groupedSaleItems.value.forEach(group => {
+        const inventoryItem = inventory.value.find(item =>
+          item.name === group.name && item.branchId === inventoryBranchId
+        )
+        if (inventoryItem) {
+          const currentStock = Number(inventoryItem.currentStock) || 0
+          const newStock = Math.max(0, currentStock - group.count)
+          batch.update(doc(db, 'inventory', inventoryItem.id), {
+            currentStock: newStock,
+            updatedAt: new Date()
+          })
+          inventoryStockUpdates.push({ inventoryItem, newStock })
+        }
+
+        const transactionRef = doc(collection(db, 'inventory_transactions'))
+        batch.set(transactionRef, {
+          branchId: inventoryBranchId,
+          branchName: saleBranch ? saleBranch.name : 'Unknown Branch',
+          saleId: saleDocRef.id,
+          inventoryItemId: inventoryItem ? inventoryItem.id : '',
+          inventoryItemName: group.name,
+          transactionType: 'Stock Out',
+          quantity: group.count,
+          date: new Date().toISOString().split('T')[0],
+          notes: 'From Sales',
+          createdBy: currentUserId,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        })
+      })
     }
 
     const writePromise = batch.commit()
@@ -1006,6 +1048,7 @@ async function handleSaveSale() {
       debitAccountId: isCancelled ? '' : debitAccountId,
       revenueAccountId: isCancelled ? '' : revenueAccountId,
       accountingStatus: isCancelled ? 'cancelled' : journalStatus,
+      ...(shouldDeductInventory ? { inventoryDeductedAt: new Date() } : {}),
       date: createdAtDate.toLocaleDateString('en-CA'),
       dateTime: formatSaleDateTime(createdAtDate),
       createdAtTs: createdAtDate.getTime(),
@@ -1020,39 +1063,9 @@ async function handleSaveSale() {
       sales.value = [updatedSaleRecord, ...sales.value]
     }
 
-    // Deduct selected inventory quantities from stock and record stock out transactions
-    const wasCompleted = editingSale.value?.status === 'Completed'
-    if (saleForm.value.status === 'Completed' && !wasCompleted) {
-      const branchId = saleForm.value.branchId
-      const saleBranch = branches.value.find(b => b.id === branchId)
-      groupedSaleItems.value.forEach(group => {
-        const invItem = inventory.value.find(inv => inv.name === group.name && inv.branchId === branchId)
-        if (invItem) {
-          const current = Number(invItem.currentStock) || 0
-          const newStock = Math.max(0, current - group.count)
-          invItem.currentStock = newStock
-          updateDoc(doc(db, 'inventory', invItem.id), {
-            currentStock: newStock,
-            updatedAt: new Date()
-          }).catch(err => console.warn('Inventory deduction failed for', group.name, err))
-        }
-
-        addDoc(collection(db, 'inventory_transactions'), {
-          branchId,
-          branchName: saleBranch ? saleBranch.name : 'Unknown Branch',
-          saleId: saleDocRef.id,
-          inventoryItemId: invItem ? invItem.id : '',
-          inventoryItemName: group.name,
-          transactionType: 'Stock Out',
-          quantity: group.count,
-          date: new Date().toISOString().split('T')[0],
-          notes: 'From Sales',
-          createdBy: userStore.user.uid,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }).catch(err => console.warn('Failed to create stock out transaction for', group.name, err))
-      })
-    }
+    inventoryStockUpdates.forEach(({ inventoryItem, newStock }) => {
+      inventoryItem.currentStock = newStock
+    })
 
     printSale(saleToPrint)
 
@@ -1138,7 +1151,20 @@ function resetForm() {
   selectedService.value = ''
 }
 
-function printSale(sale) {
+async function printOnNativeAndroid(html, jobName) {
+  const nativePrinter = window.Capacitor?.Plugins?.NativePrinter
+  if (!window.Capacitor?.isNativePlatform?.() || !nativePrinter) return false
+
+  try {
+    await nativePrinter.print({ html, jobName })
+  } catch (error) {
+    console.error('Android printing failed:', error)
+    $q.notify({ type: 'negative', message: 'Unable to open the Android print service.' })
+  }
+  return true
+}
+
+async function printSale(sale) {
   const branch = branches.value.find(b => b.id === sale.branchId) || {}
   const addressLine = branch.address ? '<div>' + branch.address + '</div>' : ''
   const phoneLine = branch.phone ? '<div>' + branch.phone + '</div>' : ''
@@ -1250,6 +1276,8 @@ function printSale(sale) {
     return
   }
 
+  if (await printOnNativeAndroid(printContent, `Receipt ${sale.invoiceNo || ''}`.trim())) return
+
   const printWindow = window.open('', '_blank', `left=0,top=0,width=${screen.availWidth},height=${screen.availHeight}`)
   if (printWindow) {
     printWindow.document.write(printContent)
@@ -1261,7 +1289,7 @@ function printSale(sale) {
   }
 }
 
-function printReport() {
+async function printReport() {
   const branch = branchOptions.value.find(b => b.value === selectedBranch.value)?.label || 'All Branches'
   const periodStart = startDate.value
     ? `${startDate.value} ${startTime.value || '00:00'}`
@@ -1446,6 +1474,9 @@ function printReport() {
     </body>
     </html>
   `
+
+  if (await printOnNativeAndroid(printContent, 'Sales Report')) return
+
   const printWindow = window.open('', '_blank')
   if (printWindow) {
     printWindow.document.write(printContent)
