@@ -139,8 +139,6 @@ import {
   getDocs,
   query,
   where,
-  orderBy,
-  limit,
 } from "../boot/firebase";
 import { useUserStore } from "../stores/user";
 
@@ -267,7 +265,7 @@ function connectToVerificationEvents (retriesRemaining = 10) {
   verificationSocket.onopen = () => {
     verificationMessage.value = 'Waiting for a fingerprint scan.'
   }
-  verificationSocket.onmessage = (event) => {
+  verificationSocket.onmessage = async (event) => {
     let result
     try {
       result = JSON.parse(event.data)
@@ -279,12 +277,14 @@ function connectToVerificationEvents (retriesRemaining = 10) {
 
     console.log('Fingerprint attendance verification:', result)
     verificationMessage.value = result.message || (result.verified ? `Fingerprint verified for ${result.name}.` : 'Fingerprint did not match.')
-    $q.notify({
-      type: result.verified ? 'positive' : 'negative',
-      message: verificationMessage.value
-    })
+    
     if (result.verified) {
-      recordAttendance(result.name, result.file)
+      const logType = await recordAttendance(result.name, result.file)
+      const logTypeSuffix = logType ? ` (${logType})` : ''
+      $q.notify({
+        type: result.verified ? 'positive' : 'negative',
+        message: verificationMessage.value + logTypeSuffix
+      })
     }
     window.clearTimeout(resultResetTimer)
     resultResetTimer = window.setTimeout(() => {
@@ -309,24 +309,33 @@ function getPhilippineDayRange () {
   return { startUtc, endUtc }
 }
 
+async function getLatestRatePerHour (attendanceRef, name) {
+  const snapshot = await getDocs(query(attendanceRef, where('name', '==', name)))
+  const latestOutLog = snapshot.docs
+    .map((docSnap) => docSnap.data())
+    .filter((attendance) => attendance.logType === 'Out' && attendance.createdAt?.toDate)
+    .sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime())[0]
+
+  return Number(latestOutLog?.ratePerHour) || 0
+}
+
 // Alternates In/Out per person per Philippine calendar day: first scan of the day is In, then it toggles.
 async function recordAttendance (name, file) {
   try {
     const { startUtc, endUtc } = getPhilippineDayRange()
     const attendanceRef = collection(db, 'attendance')
-    const todayQuery = query(
-      attendanceRef,
-      where('name', '==', name),
-      where('createdAt', '>=', startUtc),
-      where('createdAt', '<', endUtc),
-      orderBy('createdAt', 'desc'),
-      limit(1)
-    )
-    const snapshot = await getDocs(todayQuery)
+    const snapshot = await getDocs(query(attendanceRef, where('name', '==', name)))
+    const latestLog = snapshot.docs
+      .map((docSnap) => docSnap.data())
+      .filter((attendance) => {
+        const createdAt = attendance.createdAt?.toDate?.()
+        return createdAt && createdAt >= startUtc && createdAt < endUtc
+      })
+      .sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime())[0]
     let logType = 'In'
     let noOfHours = 0
-    if (!snapshot.empty) {
-      const latestLog = snapshot.docs[0].data()
+    const ratePerHour = await getLatestRatePerHour(attendanceRef, name)
+    if (latestLog) {
       logType = latestLog.logType === 'In' ? 'Out' : 'In'
       if (logType === 'Out' && latestLog.createdAt?.toDate) {
         const elapsedMilliseconds = Math.max(0, Date.now() - latestLog.createdAt.toDate().getTime())
@@ -338,10 +347,13 @@ async function recordAttendance (name, file) {
       file,
       logType,
       noOfHours,
+      ratePerHour,
       createdAt: serverTimestamp()
     })
+    return logType
   } catch (error) {
     console.error('Could not record attendance:', error)
+    return null
   }
 }
 

@@ -351,6 +351,44 @@
               dense
               class="sale-input"
             />
+            <div v-if="saleForm.paymentType === 'Cash'" class="cash-panel q-mb-md">
+              <q-input
+                v-model.number="saleForm.enterAmount"
+                label="Enter Amount"
+                type="number"
+                step="0.01"
+                outlined
+                dense
+                class="sale-input cash-panel__input"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="fa-solid fa-peso-sign" color="pink-5" />
+                </template>
+              </q-input>
+              <div class="cash-panel__change" :class="changeAmount < 0 ? 'cash-panel__change--negative' : 'cash-panel__change--positive'">
+                <div class="cash-panel__label">
+                  <q-icon :name="changeAmount < 0 ? 'error_outline' : 'check_circle'" size="18px" />
+                  {{ changeAmount < 0 ? 'Insufficient Amount' : 'Change' }}
+                </div>
+                <div class="cash-panel__value">{{ formatCurrency(Math.abs(changeAmount)) }}</div>
+              </div>
+            </div>
+            <q-select
+              v-model="saleForm.revenueAccountId"
+              label="Revenue Account"
+              :options="revenueAccountOptions"
+              outlined
+              dense
+              emit-value
+              map-options
+              class="sale-input"
+              :loading="loadingAccounts"
+              :rules="[val => !!val || 'Revenue account is required']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="account_tree" color="pink-5" />
+              </template>
+            </q-select>
             <q-select
               v-model="saleForm.paymentStatus"
               label="Payment Status"
@@ -398,7 +436,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, addDoc, setDoc, updateDoc, deleteDoc, doc, query, where, orderBy } from '../boot/firebase'
+import { db, collection, getDoc, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -417,6 +455,7 @@ onMounted(async () => {
 const loading = ref(false)
 const sales = ref([])
 const branches = ref([])
+const accounts = ref([])
 const inventory = ref([])
 const selectedInventory = ref(null)
 const selectedService = ref('')
@@ -429,6 +468,7 @@ const startDate = ref('')
 const endDate = ref('')
 const startTime = ref('')
 const endTime = ref('')
+const loadingAccounts = ref(false)
 
 const minDate = computed(() => {
   if (userStore.isAdmin) return undefined
@@ -463,6 +503,13 @@ const branchOptions = computed(() =>
     value: branch.id
   }))
 )
+
+const revenueAccountOptions = computed(() => accounts.value
+  .filter(account => account.type === 'revenue' && account.isActive !== false)
+  .map(account => ({
+    label: `${account.code} - ${account.name}`,
+    value: account.id
+  })))
 
 function buildFilterDateTime(dateStr, timeStr, isEnd = false) {
   if (!dateStr) return null
@@ -535,6 +582,21 @@ async function loadBranches() {
     branches.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
   } catch (error) {
     console.error('Error loading branches:', error)
+  }
+}
+
+async function loadAccounts() {
+  loadingAccounts.value = true
+  try {
+    const snapshot = await getDocs(collection(db, 'accounts'))
+    accounts.value = snapshot.docs
+      .map(docSnapshot => ({ id: docSnapshot.id, ...docSnapshot.data() }))
+      .sort((first, second) => first.code.localeCompare(second.code, undefined, { numeric: true }))
+  } catch (error) {
+    console.error('Error loading accounts:', error)
+    $q.notify({ type: 'negative', message: 'Failed to load sales accounts.' })
+  } finally {
+    loadingAccounts.value = false
   }
 }
 
@@ -620,6 +682,8 @@ const saleForm = ref({
   status: 'Pending',
   paymentStatus: 'Unpaid',
   paymentType: 'Cash',
+  revenueAccountId: '4000',
+  enterAmount: 0,
   notes: ''
 })
 
@@ -717,9 +781,16 @@ function getServiceTotal(name) {
   return Number(((price * weight) / min).toFixed(2))
 }
 
-const overallTotal = computed(() =>
-  saleForm.value.services.reduce((sum, service) => sum + Number(service.price || 0), 0) +
-  saleItems.value.reduce((sum, item) => sum + Number(item.price || 0), 0)
+const overallTotal = computed(() => {
+  const servicesTotal = saleForm.value.services.length
+    ? saleForm.value.services.reduce((sum, service) => sum + Number(service.price || 0), 0)
+    : Number(saleForm.value.amount || 0)
+  const itemsTotal = saleItems.value.reduce((sum, item) => sum + Number(item.price || 0), 0)
+  return Number((servicesTotal + itemsTotal).toFixed(2))
+})
+
+const changeAmount = computed(() =>
+  Number((Number(saleForm.value.enterAmount || 0) - overallTotal.value).toFixed(2))
 )
 
 const groupedSaleItems = computed(() => {
@@ -770,6 +841,8 @@ function editSale(sale) {
     status: sale.status,
     paymentStatus: sale.paymentStatus,
     paymentType: sale.paymentType,
+    revenueAccountId: sale.revenueAccountId || '4000',
+    enterAmount: sale.enterAmount || 0,
     notes: sale.notes
   }
   saleForm.value.services.forEach(service => {
@@ -783,7 +856,6 @@ async function handleSaveSale() {
   loading.value = true
   try {
     const isEditing = !!editingSale.value
-    let writePromise
     const currentUserId = userStore.user?.uid || ''
     const currentUserName = userStore.userData?.displayName || userStore.userData?.email || 'User'
 
@@ -796,32 +868,133 @@ async function handleSaveSale() {
       .map(s => ({ name: getServiceName(s.name), price: Number(s.price || 0) }))
       .filter(s => s.name)
     const serviceTotal = serviceRecords.reduce((sum, s) => sum + Number(s.price || 0), 0)
+    const isCashPayment = formData.paymentType === 'Cash'
+    if (!isCashPayment) delete formData.enterAmount
+    const cashFields = isCashPayment
+      ? { enterAmount: Number(formData.enterAmount || 0), change: changeAmount.value }
+      : { enterAmount: null, change: null }
+
+    const total = overallTotal.value
+    const debitAccountId = formData.paymentStatus === 'Paid' ? '1000' : '1200'
+    const revenueAccountId = formData.revenueAccountId
+    const debitAccount = accounts.value.find(account => account.id === debitAccountId)
+    const revenueAccount = accounts.value.find(account => account.id === revenueAccountId)
+    if (
+      !debitAccount || debitAccount.type !== 'asset' || debitAccount.isActive === false ||
+      !revenueAccount || revenueAccount.type !== 'revenue' || revenueAccount.isActive === false
+    ) {
+      throw new Error('A valid active payment account and revenue account are required.')
+    }
+
+    const journalEntryId = editingSale.value?.journalEntryId || `sale-${saleDocRef.id}`
+    const journalEntryRef = doc(db, 'journalEntries', journalEntryId)
+    if (isEditing) {
+      const journalSnapshot = await getDoc(journalEntryRef)
+      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
+        $q.notify({ type: 'warning', message: 'This sale cannot be changed because its journal entry is no longer a draft.' })
+        return
+      }
+    }
+    const journalStatus = 'draft'
+    const isCancelled = formData.status === 'Cancelled'
+    const inventoryWasDeducted = Boolean(editingSale.value?.inventoryDeductedAt) || editingSale.value?.status === 'Completed'
+    const shouldDeductInventory = !isCancelled && saleItems.value.length > 0 && !inventoryWasDeducted
+    const inventoryBranchId = userStore.userData?.branchId || ''
+    if (shouldDeductInventory && !inventoryBranchId) {
+      throw new Error('The current user does not have an assigned branch.')
+    }
+    const saleData = {
+      ...formData,
+      ...cashFields,
+      userId: currentUserId,
+      userName: currentUserName,
+      service: serviceRecords,
+      amount: serviceTotal,
+      items: saleItems.value,
+      total,
+      journalEntryId: isCancelled ? '' : journalEntryId,
+      debitAccountId: isCancelled ? '' : debitAccountId,
+      revenueAccountId: isCancelled ? '' : revenueAccountId,
+      accountingStatus: isCancelled ? 'cancelled' : journalStatus,
+      accountingSyncedAt: serverTimestamp(),
+      ...(shouldDeductInventory ? { inventoryDeductedAt: serverTimestamp() } : {}),
+      updatedAt: new Date()
+    }
+    const batch = writeBatch(db)
 
     if (isEditing) {
-      writePromise = updateDoc(saleDocRef, {
-        ...formData,
-        userId: currentUserId,
-        userName: currentUserName,
-        service: serviceRecords,
-        amount: serviceTotal,
-        items: saleItems.value,
-        total: overallTotal.value,
-        updatedAt: new Date()
-      })
+      batch.update(saleDocRef, saleData)
     } else {
-      writePromise = setDoc(saleDocRef, {
-        ...formData,
-        userId: currentUserId,
-        userName: currentUserName,
-        service: serviceRecords,
-        amount: serviceTotal,
-        items: saleItems.value,
-        total: overallTotal.value,
+      batch.set(saleDocRef, {
+        ...saleData,
         createdBy: currentUserId,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        createdAt: new Date()
       })
     }
+
+    if (isCancelled) {
+      batch.delete(journalEntryRef)
+    } else {
+      const hasExistingJournal = Boolean(editingSale.value?.journalEntryId)
+      const transactionDate = editingSale.value?.createdAt || new Date()
+      const journalEntryData = {
+        description: `Sale ${formData.invoiceNo || saleDocRef.id}`,
+        referenceType: 'sale',
+        referenceId: saleDocRef.id,
+        totalDebit: total,
+        totalCredit: total,
+        status: journalStatus,
+        branchId: formData.branchId,
+        updatedAt: serverTimestamp(),
+        lines: [
+          { accountId: debitAccountId, debit: total, credit: 0 },
+          { accountId: revenueAccountId, debit: 0, credit: total }
+        ]
+      }
+      if (!hasExistingJournal) {
+        journalEntryData.transactionDate = transactionDate
+        journalEntryData.createdAt = transactionDate
+        journalEntryData.createdBy = editingSale.value?.createdBy || currentUserId
+      }
+      batch.set(journalEntryRef, journalEntryData, { merge: true })
+    }
+
+    const inventoryStockUpdates = []
+    if (shouldDeductInventory) {
+      const saleBranch = branches.value.find(branch => branch.id === inventoryBranchId)
+      groupedSaleItems.value.forEach(group => {
+        const inventoryItem = inventory.value.find(item =>
+          item.name === group.name && item.branchId === inventoryBranchId
+        )
+        if (inventoryItem) {
+          const currentStock = Number(inventoryItem.currentStock) || 0
+          const newStock = Math.max(0, currentStock - group.count)
+          batch.update(doc(db, 'inventory', inventoryItem.id), {
+            currentStock: newStock,
+            updatedAt: new Date()
+          })
+          inventoryStockUpdates.push({ inventoryItem, newStock })
+        }
+
+        const transactionRef = doc(collection(db, 'inventory_transactions'))
+        batch.set(transactionRef, {
+          branchId: inventoryBranchId,
+          branchName: saleBranch ? saleBranch.name : 'Unknown Branch',
+          saleId: saleDocRef.id,
+          inventoryItemId: inventoryItem ? inventoryItem.id : '',
+          inventoryItemName: group.name,
+          transactionType: 'Stock Out',
+          quantity: group.count,
+          date: new Date().toISOString().split('T')[0],
+          notes: 'From Sales',
+          createdBy: currentUserId,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        })
+      })
+    }
+
+    const writePromise = batch.commit()
 
     writePromise.catch(err => console.warn('Queued sale failed to sync:', err))
 
@@ -871,6 +1044,11 @@ async function handleSaveSale() {
       amount: serviceTotal,
       items: saleItems.value.map(item => ({ ...item })),
       total: overallTotal.value,
+      journalEntryId: isCancelled ? '' : journalEntryId,
+      debitAccountId: isCancelled ? '' : debitAccountId,
+      revenueAccountId: isCancelled ? '' : revenueAccountId,
+      accountingStatus: isCancelled ? 'cancelled' : journalStatus,
+      ...(shouldDeductInventory ? { inventoryDeductedAt: new Date() } : {}),
       date: createdAtDate.toLocaleDateString('en-CA'),
       dateTime: formatSaleDateTime(createdAtDate),
       createdAtTs: createdAtDate.getTime(),
@@ -885,39 +1063,9 @@ async function handleSaveSale() {
       sales.value = [updatedSaleRecord, ...sales.value]
     }
 
-    // Deduct selected inventory quantities from stock and record stock out transactions
-    const wasCompleted = editingSale.value?.status === 'Completed'
-    if (saleForm.value.status === 'Completed' && !wasCompleted) {
-      const branchId = saleForm.value.branchId
-      const saleBranch = branches.value.find(b => b.id === branchId)
-      groupedSaleItems.value.forEach(group => {
-        const invItem = inventory.value.find(inv => inv.name === group.name && inv.branchId === branchId)
-        if (invItem) {
-          const current = Number(invItem.currentStock) || 0
-          const newStock = Math.max(0, current - group.count)
-          invItem.currentStock = newStock
-          updateDoc(doc(db, 'inventory', invItem.id), {
-            currentStock: newStock,
-            updatedAt: new Date()
-          }).catch(err => console.warn('Inventory deduction failed for', group.name, err))
-        }
-
-        addDoc(collection(db, 'inventory_transactions'), {
-          branchId,
-          branchName: saleBranch ? saleBranch.name : 'Unknown Branch',
-          saleId: saleDocRef.id,
-          inventoryItemId: invItem ? invItem.id : '',
-          inventoryItemName: group.name,
-          transactionType: 'Stock Out',
-          quantity: group.count,
-          date: new Date().toISOString().split('T')[0],
-          notes: 'From Sales',
-          createdBy: userStore.user.uid,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }).catch(err => console.warn('Failed to create stock out transaction for', group.name, err))
-      })
-    }
+    inventoryStockUpdates.forEach(({ inventoryItem, newStock }) => {
+      inventoryItem.currentStock = newStock
+    })
 
     printSale(saleToPrint)
 
@@ -946,11 +1094,21 @@ function deleteSale(id) {
     persistent: true
   }).onOk(async () => {
     try {
+      const sale = sales.value.find((item) => item.id === id)
+      const journalEntryRef = doc(db, 'journalEntries', sale?.journalEntryId || `sale-${id}`)
+      const journalSnapshot = await getDoc(journalEntryRef)
+      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
+        $q.notify({ type: 'warning', message: 'This sale cannot be deleted because its journal entry is no longer a draft.' })
+        return
+      }
       const inventoryQuery = query(collection(db, 'inventory_transactions'), where('saleId', '==', id))
       const snapshot = await getDocs(inventoryQuery)
       const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'inventory_transactions', d.id)))
       await Promise.all(deletePromises)
-      await deleteDoc(doc(db, 'sales', id))
+      const batch = writeBatch(db)
+      batch.delete(doc(db, 'sales', id))
+      batch.delete(journalEntryRef)
+      await batch.commit()
       $q.notify({
         type: 'positive',
         message: 'Sale deleted successfully!'
@@ -984,6 +1142,8 @@ function resetForm() {
     status: 'Pending',
     paymentStatus: 'Unpaid',
     paymentType: 'Cash',
+    revenueAccountId: '4000',
+    enterAmount: 0,
     notes: ''
   }
   saleItems.value = []
@@ -991,7 +1151,20 @@ function resetForm() {
   selectedService.value = ''
 }
 
-function printSale(sale) {
+async function printOnNativeAndroid(html, jobName) {
+  const nativePrinter = window.Capacitor?.Plugins?.NativePrinter
+  if (!window.Capacitor?.isNativePlatform?.() || !nativePrinter) return false
+
+  try {
+    await nativePrinter.print({ html, jobName })
+  } catch (error) {
+    console.error('Android printing failed:', error)
+    $q.notify({ type: 'negative', message: 'Unable to open the Android print service.' })
+  }
+  return true
+}
+
+async function printSale(sale) {
   const branch = branches.value.find(b => b.id === sale.branchId) || {}
   const addressLine = branch.address ? '<div>' + branch.address + '</div>' : ''
   const phoneLine = branch.phone ? '<div>' + branch.phone + '</div>' : ''
@@ -1039,7 +1212,7 @@ function printSale(sale) {
             background: #fff;
             color: #000;
             font-family: 'Segoe UI', sans-serif;
-            font-size: 7.2px;
+            font-size: 10px;
             line-height: 1.2;
             box-sizing: border-box;
             overflow: hidden;
@@ -1103,6 +1276,8 @@ function printSale(sale) {
     return
   }
 
+  if (await printOnNativeAndroid(printContent, `Receipt ${sale.invoiceNo || ''}`.trim())) return
+
   const printWindow = window.open('', '_blank', `left=0,top=0,width=${screen.availWidth},height=${screen.availHeight}`)
   if (printWindow) {
     printWindow.document.write(printContent)
@@ -1114,7 +1289,7 @@ function printSale(sale) {
   }
 }
 
-function printReport() {
+async function printReport() {
   const branch = branchOptions.value.find(b => b.value === selectedBranch.value)?.label || 'All Branches'
   const periodStart = startDate.value
     ? `${startDate.value} ${startTime.value || '00:00'}`
@@ -1299,6 +1474,9 @@ function printReport() {
     </body>
     </html>
   `
+
+  if (await printOnNativeAndroid(printContent, 'Sales Report')) return
+
   const printWindow = window.open('', '_blank')
   if (printWindow) {
     printWindow.document.write(printContent)
@@ -1319,6 +1497,7 @@ onMounted(() => {
   }
 
   loadBranches()
+  loadAccounts()
   loadServiceTypes()
   loadInventory()
   loadSales()
@@ -1470,6 +1649,48 @@ onMounted(() => {
 .action-print:hover {
   transform: scale(1.15);
   background: rgba(233, 30, 140, 0.1);
+}
+
+/* ===== Cash payment panel ===== */
+.cash-panel {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(233, 30, 140, 0.15);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.cash-panel__input {
+  margin-bottom: 12px;
+}
+
+.cash-panel__change {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.cash-panel__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.cash-panel__value {
+  font-size: 1.15rem;
+}
+
+.cash-panel__change--positive {
+  background: rgba(76, 175, 80, 0.14);
+  color: #1B5E20;
+}
+
+.cash-panel__change--negative {
+  background: rgba(233, 30, 140, 0.12);
+  color: #AD1457;
 }
 
 /* ===== Dialog ===== */
