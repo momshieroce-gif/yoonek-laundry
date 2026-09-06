@@ -29,9 +29,6 @@
         <template v-slot:body-cell-openingCapital="props">
           <q-td :props="props">{{ formatCurrency(props.value) }}</q-td>
         </template>
-        <template v-slot:body-cell-equityAccountId="props">
-          <q-td :props="props">{{ getAccountLabel(props.value) }}</q-td>
-        </template>
         <template v-slot:body-cell-actions="props">
           <q-td :props="props">
             <q-btn
@@ -124,30 +121,13 @@
               step="0.01"
               prefix="₱"
               class="branch-input"
-              hint="Optional. Debits Cash and credits the selected equity account."
+              hint="Optional starting capital for this branch."
               :rules="[(value) => Number(value) >= 0 || 'Opening capital cannot be negative']"
             >
               <template v-slot:prepend>
                 <q-icon name="account_balance" color="pink-5" />
               </template>
             </q-input>
-            <q-select
-              v-model="branchForm.equityAccountId"
-              label="Equity Account"
-              outlined
-              dense
-              emit-value
-              map-options
-              color="pink-7"
-              class="branch-input"
-              :options="equityAccountOptions"
-              :loading="loadingAccounts"
-              :rules="[(value) => Number(branchForm.openingCapital) <= 0 || !!value || 'Equity account is required']"
-            >
-              <template v-slot:prepend>
-                <q-icon name="account_tree" color="pink-5" />
-              </template>
-            </q-select>
             <div class="row justify-end q-mt-md">
               <q-btn flat rounded label="Cancel" v-close-popup class="cancel-btn q-mr-sm" />
               <q-btn type="submit" rounded unelevated label="Save" class="save-btn" :loading="loading" />
@@ -160,10 +140,10 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDoc, getDocs, doc, writeBatch, serverTimestamp } from '../boot/firebase'
+import { db, collection, getDocs, doc, writeBatch, serverTimestamp } from '../boot/firebase'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
@@ -179,9 +159,7 @@ onMounted(async () => {
 })
 
 const loading = ref(false)
-const loadingAccounts = ref(false)
 const branches = ref([])
-const accounts = ref([])
 const showAddDialog = ref(false)
 const editingBranch = ref(null)
 
@@ -191,21 +169,15 @@ const branchColumns = [
   { name: 'phone', label: 'Phone', field: 'phone', align: 'left' },
   { name: 'manager', label: 'Manager', field: 'manager', align: 'left' },
   { name: 'openingCapital', label: 'Opening Capital', field: 'openingCapital', align: 'right', sortable: true },
-  { name: 'equityAccountId', label: 'Equity Account', field: 'equityAccountId', align: 'left' },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
-
-const equityAccountOptions = computed(() => accounts.value
-  .filter((account) => account.type === 'equity' && account.isActive !== false)
-  .map((account) => ({ label: `${account.code} - ${account.name}`, value: account.id })))
 
 const branchForm = ref({
   name: '',
   address: '',
   phone: '',
   manager: '',
-  openingCapital: null,
-  equityAccountId: '3000'
+  openingCapital: null
 })
 
 function formatCurrency(value) {
@@ -213,12 +185,6 @@ function formatCurrency(value) {
     style: 'currency',
     currency: 'PHP'
   }).format(Number(value) || 0)
-}
-
-function getAccountLabel(accountId) {
-  if (!accountId) return '—'
-  const account = accounts.value.find((item) => item.id === accountId)
-  return account ? `${account.code} - ${account.name}` : accountId
 }
 
 async function loadBranches() {
@@ -236,23 +202,6 @@ async function loadBranches() {
   }
 }
 
-async function loadAccounts() {
-  loadingAccounts.value = true
-  try {
-    const snapshot = await getDocs(collection(db, 'accounts'))
-    accounts.value = snapshot.docs
-      .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
-      .sort((first, second) => first.code.localeCompare(second.code, undefined, { numeric: true }))
-  } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load equity accounts: ' + error.message
-    })
-  } finally {
-    loadingAccounts.value = false
-  }
-}
-
 function editBranch(branch) {
   editingBranch.value = branch
   branchForm.value = {
@@ -260,8 +209,7 @@ function editBranch(branch) {
     address: branch.address,
     phone: branch.phone,
     manager: branch.manager,
-    openingCapital: Number(branch.openingCapital) || 0,
-    equityAccountId: branch.equityAccountId || '3000'
+    openingCapital: Number(branch.openingCapital) || 0
   }
   showAddDialog.value = true
 }
@@ -270,37 +218,10 @@ async function handleSaveBranch() {
   loading.value = true
   try {
     const openingCapital = Number(branchForm.value.openingCapital) || 0
-    const equityAccountId = branchForm.value.equityAccountId
     const branchRef = editingBranch.value
       ? doc(db, 'branches', editingBranch.value.id)
       : doc(collection(db, 'branches'))
-    const journalEntryId = editingBranch.value?.openingJournalEntryId || `branch-${branchRef.id}`
-    const journalEntryRef = doc(db, 'journalEntries', journalEntryId)
     const batch = writeBatch(db)
-
-    if (editingBranch.value?.openingJournalEntryId) {
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'Opening capital cannot be changed because its journal entry is no longer a draft.' })
-        return
-      }
-    }
-
-    if (openingCapital > 0) {
-      const [cashAccount, equityAccount] = await Promise.all([
-        getDoc(doc(db, 'accounts', '1000')),
-        getDoc(doc(db, 'accounts', equityAccountId))
-      ])
-      if (
-        !cashAccount.exists() ||
-        cashAccount.data().isActive === false ||
-        !equityAccount.exists() ||
-        equityAccount.data().type !== 'equity' ||
-        equityAccount.data().isActive === false
-      ) {
-        throw new Error('Cash (1000) and a valid equity account are required.')
-      }
-    }
 
     const branchData = {
       name: branchForm.value.name,
@@ -308,8 +229,6 @@ async function handleSaveBranch() {
       phone: branchForm.value.phone,
       manager: branchForm.value.manager,
       openingCapital,
-      equityAccountId: openingCapital > 0 ? equityAccountId : '',
-      openingJournalEntryId: openingCapital > 0 ? journalEntryId : '',
       updatedAt: serverTimestamp()
     }
 
@@ -321,31 +240,6 @@ async function handleSaveBranch() {
         createdAt: serverTimestamp(),
         createdBy: userStore.user?.uid || ''
       })
-    }
-
-    if (openingCapital > 0) {
-      const transactionDate = editingBranch.value?.createdAt || serverTimestamp()
-      const journalEntryData = {
-        description: `Opening capital for ${branchForm.value.name}`,
-        referenceType: 'branchOpeningCapital',
-        referenceId: branchRef.id,
-        totalDebit: openingCapital,
-        totalCredit: openingCapital,
-        status: 'draft',
-        branchId: branchRef.id,
-        lines: [
-          { accountId: '1000', debit: openingCapital, credit: 0 },
-          { accountId: equityAccountId, debit: 0, credit: openingCapital }
-        ]
-      }
-      if (!editingBranch.value?.openingJournalEntryId) {
-        journalEntryData.transactionDate = transactionDate
-        journalEntryData.createdAt = transactionDate
-        journalEntryData.createdBy = userStore.user?.uid || ''
-      }
-      batch.set(journalEntryRef, journalEntryData, { merge: true })
-    } else if (editingBranch.value?.openingJournalEntryId) {
-      batch.delete(journalEntryRef)
     }
 
     await batch.commit()
@@ -377,9 +271,6 @@ function deleteBranch(branch) {
     try {
       const batch = writeBatch(db)
       batch.delete(doc(db, 'branches', branch.id))
-      if (branch.openingJournalEntryId) {
-        batch.delete(doc(db, 'journalEntries', branch.openingJournalEntryId))
-      }
       await batch.commit()
       $q.notify({
         type: 'positive',
@@ -401,13 +292,12 @@ function resetForm() {
     address: '',
     phone: '',
     manager: '',
-    openingCapital: null,
-    equityAccountId: '3000'
+    openingCapital: null
   }
 }
 
 onMounted(() => {
-  Promise.all([loadBranches(), loadAccounts()])
+  loadBranches()
 })
 </script>
 

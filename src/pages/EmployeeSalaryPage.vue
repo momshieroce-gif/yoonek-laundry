@@ -89,7 +89,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { db, collection, doc, getDoc, getDocs, query, where, writeBatch } from '../boot/firebase'
+import { db, collection, doc, getDocs, query, where, writeBatch } from '../boot/firebase'
 
 const $q = useQuasar()
 const salaries = ref([])
@@ -168,7 +168,6 @@ async function loadSalaries () {
           grossTotal: Number(data.grossTotal) || 0,
           cashAdvanceTotal: Number(data.cashAdvanceTotal) || 0,
           netTotal: Number(data.netTotal) || 0,
-          journalEntryId: data.journalEntryId || `employee-salary-${docSnapshot.id}`,
           createdAt: data.createdAt || null
         }
       })
@@ -189,24 +188,17 @@ function confirmDelete (salary) {
     persistent: true
   }).onOk(async () => {
     try {
-      const journalEntryRef = doc(db, 'journalEntries', salary.journalEntryId)
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'This salary cannot be deleted because its journal entry is no longer a draft.' })
-        return
-      }
       const linkedAdvances = await getDocs(query(
         collection(db, 'cashAdvances'),
         where('employeeSalaryId', '==', salary.id)
       ))
       const batch = writeBatch(db)
       batch.delete(doc(db, 'employeeSalaries', salary.id))
-      batch.delete(journalEntryRef)
       linkedAdvances.docs.forEach((advanceSnapshot) => {
         batch.update(advanceSnapshot.ref, { employeeSalaryId: null, settledAt: null })
       })
       await batch.commit()
-      $q.notify({ type: 'positive', message: 'Employee salary and journal entry deleted.' })
+      $q.notify({ type: 'positive', message: 'Employee salary deleted.' })
       await loadSalaries()
     } catch (error) {
       console.error('Could not delete employee salary:', error)

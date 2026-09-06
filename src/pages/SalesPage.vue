@@ -16,12 +16,12 @@
           @click="openAddDialog"
         />
         <q-btn
-          label="Print Report"
-          icon="print"
+          label="View Report"
+          icon="analytics"
           rounded
           outline
           class="print-btn"
-          @click="printReport"
+          @click="pageReport"
         />
       </div>
     </div>
@@ -374,22 +374,6 @@
               </div>
             </div>
             <q-select
-              v-model="saleForm.revenueAccountId"
-              label="Revenue Account"
-              :options="revenueAccountOptions"
-              outlined
-              dense
-              emit-value
-              map-options
-              class="sale-input"
-              :loading="loadingAccounts"
-              :rules="[val => !!val || 'Revenue account is required']"
-            >
-              <template v-slot:prepend>
-                <q-icon name="account_tree" color="pink-5" />
-              </template>
-            </q-select>
-            <q-select
               v-model="saleForm.paymentStatus"
               label="Payment Status"
               :options="paymentStatusOptions"
@@ -429,6 +413,131 @@
         </q-card-section>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="showReportDialog" maximized transition-show="slide-up" transition-hide="slide-down">
+      <q-card class="report-page">
+        <q-toolbar class="report-toolbar">
+          <div>
+            <div class="report-title">Sales Report</div>
+            <div class="report-period">{{ reportBranch }} · {{ reportPeriod }}</div>
+          </div>
+          <q-space />
+          <q-btn flat round dense icon="close" v-close-popup>
+            <q-tooltip>Close report</q-tooltip>
+          </q-btn>
+        </q-toolbar>
+
+        <q-card-section class="report-content">
+          <q-inner-loading :showing="reportLoading" label="Preparing report..." color="pink-7" />
+
+          <div class="report-grid report-grid--two">
+            <section class="report-panel">
+              <div class="report-panel__header">
+                <div>
+                  <div class="report-panel__eyebrow">Sales mix</div>
+                  <h2>Service Types</h2>
+                </div>
+                <q-icon name="local_laundry_service" size="28px" />
+              </div>
+              <div v-if="reportData.services.length" class="report-list">
+                <div v-for="entry in reportData.services" :key="entry.name" class="report-list__row">
+                  <span>{{ entry.name }} <small>× {{ entry.count }}</small></span>
+                  <strong>{{ formatCurrency(entry.total) }}</strong>
+                </div>
+              </div>
+              <div v-else class="report-empty">No service records</div>
+              <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(reportData.serviceTotal) }}</strong></div>
+            </section>
+
+            <section class="report-panel">
+              <div class="report-panel__header">
+                <div>
+                  <div class="report-panel__eyebrow">Retail mix</div>
+                  <h2>Items</h2>
+                </div>
+                <q-icon name="inventory_2" size="28px" />
+              </div>
+              <div v-if="reportData.items.length" class="report-list">
+                <div v-for="entry in reportData.items" :key="entry.name" class="report-list__row">
+                  <span>{{ entry.name }} <small>× {{ entry.count }}</small></span>
+                  <strong>{{ formatCurrency(entry.total) }}</strong>
+                </div>
+              </div>
+              <div v-else class="report-empty">No item records</div>
+              <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(reportData.itemTotal) }}</strong></div>
+            </section>
+          </div>
+
+          <div class="report-grid report-grid--three">
+            <section v-for="payment in reportData.payments" :key="payment.type" class="report-panel report-panel--payment">
+              <div class="report-panel__header">
+                <div>
+                  <div class="report-panel__eyebrow">Payment</div>
+                  <h2>{{ payment.type }} Listing</h2>
+                </div>
+                <q-icon :name="payment.icon" size="26px" />
+              </div>
+              <div v-if="payment.entries.length" class="report-list">
+                <div v-for="entry in payment.entries" :key="entry.id" class="report-list__row">
+                  <span>{{ entry.label }}</span>
+                  <strong>{{ formatCurrency(entry.amount) }}</strong>
+                </div>
+              </div>
+              <div v-else class="report-empty">No records</div>
+              <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(payment.total) }}</strong></div>
+            </section>
+          </div>
+
+          <div class="report-grid report-grid--two">
+            <section class="report-panel report-panel--deduction">
+              <div class="report-panel__header">
+                <div>
+                  <div class="report-panel__eyebrow">Deduction</div>
+                  <h2>Cash Advances</h2>
+                </div>
+                <q-icon name="account_balance_wallet" size="26px" />
+              </div>
+              <div v-if="reportData.cashAdvances.length" class="report-list">
+                <div v-for="entry in reportData.cashAdvances" :key="entry.id" class="report-list__row">
+                  <span>{{ entry.label }}</span>
+                  <strong>{{ formatCurrency(entry.amount) }}</strong>
+                </div>
+              </div>
+              <div v-else class="report-empty">No cash advances</div>
+              <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(reportData.cashAdvanceTotal) }}</strong></div>
+            </section>
+
+            <section class="report-panel report-panel--deduction">
+              <div class="report-panel__header">
+                <div>
+                  <div class="report-panel__eyebrow">Deduction</div>
+                  <h2>Expenses</h2>
+                </div>
+                <q-icon name="receipt_long" size="26px" />
+              </div>
+              <div v-if="reportData.expenses.length" class="report-list">
+                <div v-for="entry in reportData.expenses" :key="entry.id" class="report-list__row">
+                  <span>{{ entry.label }}</span>
+                  <strong>{{ formatCurrency(entry.amount) }}</strong>
+                </div>
+              </div>
+              <div v-else class="report-empty">No expenses</div>
+              <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(reportData.expenseTotal) }}</strong></div>
+            </section>
+          </div>
+
+          <section class="income-summary">
+            <div>
+              <div class="income-summary__label">Total Income</div>
+              <div class="income-summary__formula">
+                Payments {{ formatCurrency(reportData.paymentTotal) }} − deductions {{ formatCurrency(reportData.deductionTotal) }}
+              </div>
+            </div>
+            <div class="income-summary__value">{{ formatCurrency(reportData.totalIncome) }}</div>
+          </section>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -436,7 +545,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDoc, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
+import { db, collection, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -455,12 +564,13 @@ onMounted(async () => {
 const loading = ref(false)
 const sales = ref([])
 const branches = ref([])
-const accounts = ref([])
 const inventory = ref([])
 const selectedInventory = ref(null)
 const selectedService = ref('')
 const saleItems = ref([])
 const showAddDialog = ref(false)
+const showReportDialog = ref(false)
+const reportLoading = ref(false)
 const editingSale = ref(null)
 const searchText = ref('')
 const selectedBranch = ref('')
@@ -468,7 +578,22 @@ const startDate = ref('')
 const endDate = ref('')
 const startTime = ref('')
 const endTime = ref('')
-const loadingAccounts = ref(false)
+const reportBranch = ref('All Branches')
+const reportPeriod = ref('All dates')
+const reportData = ref({
+  services: [],
+  items: [],
+  payments: [],
+  cashAdvances: [],
+  expenses: [],
+  serviceTotal: 0,
+  itemTotal: 0,
+  paymentTotal: 0,
+  cashAdvanceTotal: 0,
+  expenseTotal: 0,
+  deductionTotal: 0,
+  totalIncome: 0
+})
 
 const minDate = computed(() => {
   if (userStore.isAdmin) return undefined
@@ -503,13 +628,6 @@ const branchOptions = computed(() =>
     value: branch.id
   }))
 )
-
-const revenueAccountOptions = computed(() => accounts.value
-  .filter(account => account.type === 'revenue' && account.isActive !== false)
-  .map(account => ({
-    label: `${account.code} - ${account.name}`,
-    value: account.id
-  })))
 
 function buildFilterDateTime(dateStr, timeStr, isEnd = false) {
   if (!dateStr) return null
@@ -582,21 +700,6 @@ async function loadBranches() {
     branches.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
   } catch (error) {
     console.error('Error loading branches:', error)
-  }
-}
-
-async function loadAccounts() {
-  loadingAccounts.value = true
-  try {
-    const snapshot = await getDocs(collection(db, 'accounts'))
-    accounts.value = snapshot.docs
-      .map(docSnapshot => ({ id: docSnapshot.id, ...docSnapshot.data() }))
-      .sort((first, second) => first.code.localeCompare(second.code, undefined, { numeric: true }))
-  } catch (error) {
-    console.error('Error loading accounts:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load sales accounts.' })
-  } finally {
-    loadingAccounts.value = false
   }
 }
 
@@ -682,7 +785,6 @@ const saleForm = ref({
   status: 'Pending',
   paymentStatus: 'Unpaid',
   paymentType: 'Cash',
-  revenueAccountId: '4000',
   enterAmount: 0,
   notes: ''
 })
@@ -841,7 +943,6 @@ function editSale(sale) {
     status: sale.status,
     paymentStatus: sale.paymentStatus,
     paymentType: sale.paymentType,
-    revenueAccountId: sale.revenueAccountId || '4000',
     enterAmount: sale.enterAmount || 0,
     notes: sale.notes
   }
@@ -875,27 +976,6 @@ async function handleSaveSale() {
       : { enterAmount: null, change: null }
 
     const total = overallTotal.value
-    const debitAccountId = formData.paymentStatus === 'Paid' ? '1000' : '1200'
-    const revenueAccountId = formData.revenueAccountId
-    const debitAccount = accounts.value.find(account => account.id === debitAccountId)
-    const revenueAccount = accounts.value.find(account => account.id === revenueAccountId)
-    if (
-      !debitAccount || debitAccount.type !== 'asset' || debitAccount.isActive === false ||
-      !revenueAccount || revenueAccount.type !== 'revenue' || revenueAccount.isActive === false
-    ) {
-      throw new Error('A valid active payment account and revenue account are required.')
-    }
-
-    const journalEntryId = editingSale.value?.journalEntryId || `sale-${saleDocRef.id}`
-    const journalEntryRef = doc(db, 'journalEntries', journalEntryId)
-    if (isEditing) {
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'This sale cannot be changed because its journal entry is no longer a draft.' })
-        return
-      }
-    }
-    const journalStatus = 'draft'
     const isCancelled = formData.status === 'Cancelled'
     const inventoryWasDeducted = Boolean(editingSale.value?.inventoryDeductedAt) || editingSale.value?.status === 'Completed'
     const shouldDeductInventory = !isCancelled && saleItems.value.length > 0 && !inventoryWasDeducted
@@ -912,11 +992,6 @@ async function handleSaveSale() {
       amount: serviceTotal,
       items: saleItems.value,
       total,
-      journalEntryId: isCancelled ? '' : journalEntryId,
-      debitAccountId: isCancelled ? '' : debitAccountId,
-      revenueAccountId: isCancelled ? '' : revenueAccountId,
-      accountingStatus: isCancelled ? 'cancelled' : journalStatus,
-      accountingSyncedAt: serverTimestamp(),
       ...(shouldDeductInventory ? { inventoryDeductedAt: serverTimestamp() } : {}),
       updatedAt: new Date()
     }
@@ -930,33 +1005,6 @@ async function handleSaveSale() {
         createdBy: currentUserId,
         createdAt: new Date()
       })
-    }
-
-    if (isCancelled) {
-      batch.delete(journalEntryRef)
-    } else {
-      const hasExistingJournal = Boolean(editingSale.value?.journalEntryId)
-      const transactionDate = editingSale.value?.createdAt || new Date()
-      const journalEntryData = {
-        description: `Sale ${formData.invoiceNo || saleDocRef.id}`,
-        referenceType: 'sale',
-        referenceId: saleDocRef.id,
-        totalDebit: total,
-        totalCredit: total,
-        status: journalStatus,
-        branchId: formData.branchId,
-        updatedAt: serverTimestamp(),
-        lines: [
-          { accountId: debitAccountId, debit: total, credit: 0 },
-          { accountId: revenueAccountId, debit: 0, credit: total }
-        ]
-      }
-      if (!hasExistingJournal) {
-        journalEntryData.transactionDate = transactionDate
-        journalEntryData.createdAt = transactionDate
-        journalEntryData.createdBy = editingSale.value?.createdBy || currentUserId
-      }
-      batch.set(journalEntryRef, journalEntryData, { merge: true })
     }
 
     const inventoryStockUpdates = []
@@ -1044,10 +1092,6 @@ async function handleSaveSale() {
       amount: serviceTotal,
       items: saleItems.value.map(item => ({ ...item })),
       total: overallTotal.value,
-      journalEntryId: isCancelled ? '' : journalEntryId,
-      debitAccountId: isCancelled ? '' : debitAccountId,
-      revenueAccountId: isCancelled ? '' : revenueAccountId,
-      accountingStatus: isCancelled ? 'cancelled' : journalStatus,
       ...(shouldDeductInventory ? { inventoryDeductedAt: new Date() } : {}),
       date: createdAtDate.toLocaleDateString('en-CA'),
       dateTime: formatSaleDateTime(createdAtDate),
@@ -1094,20 +1138,12 @@ function deleteSale(id) {
     persistent: true
   }).onOk(async () => {
     try {
-      const sale = sales.value.find((item) => item.id === id)
-      const journalEntryRef = doc(db, 'journalEntries', sale?.journalEntryId || `sale-${id}`)
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'This sale cannot be deleted because its journal entry is no longer a draft.' })
-        return
-      }
       const inventoryQuery = query(collection(db, 'inventory_transactions'), where('saleId', '==', id))
       const snapshot = await getDocs(inventoryQuery)
       const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'inventory_transactions', d.id)))
       await Promise.all(deletePromises)
       const batch = writeBatch(db)
       batch.delete(doc(db, 'sales', id))
-      batch.delete(journalEntryRef)
       await batch.commit()
       $q.notify({
         type: 'positive',
@@ -1142,7 +1178,6 @@ function resetForm() {
     status: 'Pending',
     paymentStatus: 'Unpaid',
     paymentType: 'Cash',
-    revenueAccountId: '4000',
     enterAmount: 0,
     notes: ''
   }
@@ -1289,21 +1324,13 @@ async function printSale(sale) {
   }
 }
 
-async function printReport() {
-  const branch = branchOptions.value.find(b => b.value === selectedBranch.value)?.label || 'All Branches'
-  const periodStart = startDate.value
-    ? `${startDate.value} ${startTime.value || '00:00'}`
-    : 'All'
-  const periodEnd = endDate.value
-    ? `${endDate.value} ${endTime.value || '23:59'}`
-    : 'All'
-
-  const escapeHtml = (value) => String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+async function pageReport() {
+  showReportDialog.value = true
+  reportLoading.value = true
+  reportBranch.value = branchOptions.value.find(branch => branch.value === selectedBranch.value)?.label || 'All Branches'
+  const periodStart = startDate.value ? `${startDate.value} ${startTime.value || '00:00'}` : 'Beginning'
+  const periodEnd = endDate.value ? `${endDate.value} ${endTime.value || '23:59'}` : 'Present'
+  reportPeriod.value = `${periodStart} to ${periodEnd}`
 
   const serviceGroups = {}
   let serviceTotal = 0
@@ -1326,9 +1353,6 @@ async function printReport() {
       serviceGroups[name].total += price
     })
   })
-  const serviceLines = Object.values(serviceGroups)
-    .map(group => `<div class="row"><span>${escapeHtml(group.name)} x ${group.count}</span><span>${formatCurrency(group.total)}</span></div>`)
-
   const itemGroups = {}
   let itemTotal = 0
 
@@ -1345,143 +1369,79 @@ async function printReport() {
       itemGroups[name].total += price
     })
   })
-  const itemLines = Object.values(itemGroups)
-    .map(group => `<div class="row"><span>${escapeHtml(group.name)} x ${group.count}</span><span>${formatCurrency(group.total)}</span></div>`)
-
-  const paymentTypes = ['Gcash', 'Cash', 'Bank Transfer']
-  const paymentBuckets = {
-    Gcash: [],
-    Cash: [],
-    'Bank Transfer': []
-  }
+  const paymentTypes = [
+    { type: 'Cash', icon: 'payments' },
+    { type: 'Gcash', icon: 'phone_android' },
+    { type: 'Bank Transfer', icon: 'account_balance' }
+  ]
+  const paymentBuckets = Object.fromEntries(paymentTypes.map(payment => [payment.type, []]))
 
   filteredSales.value.forEach(sale => {
-    const paymentType = paymentTypes.find(type => type.toLowerCase() === String(sale.paymentType || '').toLowerCase())
-    if (!paymentType) return
+    const payment = paymentTypes.find(entry => entry.type.toLowerCase() === String(sale.paymentType || '').toLowerCase())
+    if (!payment) return
     const total = Number(sale.total ?? sale.amount ?? 0)
-    paymentBuckets[paymentType].push({
+    paymentBuckets[payment.type].push({
+      id: sale.id,
       label: sale.invoiceNo || sale.customerName || sale.id,
       amount: total
     })
   })
 
-  const paymentsHtml = paymentTypes.map(type => {
-    const list = paymentBuckets[type]
-    const listHtml = list.length
-      ? list.map(entry => `<div class="row"><span>${escapeHtml(entry.label)}</span><span>${formatCurrency(entry.amount)}</span></div>`).join('')
-      : '<div class="muted">No records</div>'
-    const total = list.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
-    return `
-      <div class="subsection-title">${type} listing</div>
-      ${listHtml}
-      <div class="row total-row"><span>Total:</span><span>${formatCurrency(total)}</span></div>
-    `
-  }).join('')
+  try {
+    const [cashAdvanceSnapshot, expenseSnapshot] = await Promise.all([
+      getDocs(collection(db, 'cashAdvances')),
+      getDocs(collection(db, 'expenses'))
+    ])
+    const startBoundary = buildFilterDateTime(startDate.value, startTime.value)
+    const endBoundary = buildFilterDateTime(endDate.value, endTime.value, true)
+    const matchesReportFilters = data => {
+      if (selectedBranch.value && data.branchId !== selectedBranch.value) return false
+      const createdAt = data.createdAt?.toDate?.() || data.createdAt
+      if (!(createdAt instanceof Date)) return false
+      if (startBoundary && createdAt < startBoundary) return false
+      if (endBoundary && createdAt > endBoundary) return false
+      return true
+    }
+    const toReportEntry = snapshot => ({
+      id: snapshot.id,
+      label: snapshot.data().name || 'Untitled',
+      amount: Number(snapshot.data().amount || 0)
+    })
+    const cashAdvances = cashAdvanceSnapshot.docs
+      .filter(snapshot => matchesReportFilters(snapshot.data()))
+      .map(toReportEntry)
+    const expenses = expenseSnapshot.docs
+      .filter(snapshot => matchesReportFilters(snapshot.data()))
+      .map(toReportEntry)
+    const payments = paymentTypes.map(payment => ({
+      ...payment,
+      entries: paymentBuckets[payment.type],
+      total: paymentBuckets[payment.type].reduce((sum, entry) => sum + entry.amount, 0)
+    }))
+    const paymentTotal = payments.reduce((sum, payment) => sum + payment.total, 0)
+    const cashAdvanceTotal = cashAdvances.reduce((sum, entry) => sum + entry.amount, 0)
+    const expenseTotal = expenses.reduce((sum, entry) => sum + entry.amount, 0)
+    const deductionTotal = cashAdvanceTotal + expenseTotal
 
-  const serviceHtml = serviceLines.length ? serviceLines.join('') : '<div class="muted">No records</div>'
-  const itemHtml = itemLines.length ? itemLines.join('') : '<div class="muted">No records</div>'
-
-  const printContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Sales Report</title>
-      <style>
-        @page {
-          size: 58mm 210mm;
-          margin: 0;
-        }
-        html, body {
-          width: 48mm;
-          max-width: 48mm;
-          height: 180mm;
-          max-height: 180mm;
-          margin: 0;
-          padding: 1.2mm 1.2mm 0;
-          color: #000;
-          font-family: 'Segoe UI', sans-serif;
-          font-size: 7.2px;
-          box-sizing: border-box;
-          overflow: hidden;
-        }
-        body {
-          padding: 1.2mm 1.2mm 0;
-        }
-        h2 {
-          margin: 0 0 8px;
-          color: #000;
-          font-size: 12px;
-        }
-        .meta { margin-bottom: 8px; font-size: 7.2px; color: #000; }
-        .section-title {
-          margin-top: 8px;
-          margin-bottom: 4px;
-          font-size: 8px;
-          font-weight: 700;
-          border-top: 1px dashed #000;
-          padding-top: 4px;
-        }
-        .subsection-title {
-          margin-top: 4px;
-          margin-bottom: 2px;
-          font-size: 7.4px;
-          font-weight: 700;
-        }
-        .row {
-          display: flex;
-          justify-content: space-between;
-          gap: 4px;
-          margin-bottom: 1px;
-        }
-        .row span:first-child {
-          flex: 1 1 auto;
-          min-width: 0;
-        }
-        .row span:last-child {
-          flex: 0 0 auto;
-          white-space: nowrap;
-          text-align: right;
-        }
-        .total-row {
-          border-top: 1px solid #000;
-          margin-top: 2px;
-          padding-top: 2px;
-          font-weight: 700;
-        }
-        .muted {
-          opacity: 0.7;
-          margin-bottom: 2px;
-        }
-      </style>
-    </head>
-    <body onload="window.print(); window.onafterprint = () => window.close()">
-      <h2>Sales Report</h2>
-      <div class="meta">
-        Branch: ${branch}<br>
-        Period: ${periodStart} to ${periodEnd}
-      </div>
-
-      <div class="section-title">Service Types:</div>
-      ${serviceHtml}
-      <div class="row total-row"><span>Total:</span><span>${formatCurrency(serviceTotal)}</span></div>
-
-      <div class="section-title">Items:</div>
-      ${itemHtml}
-      <div class="row total-row"><span>Total:</span><span>${formatCurrency(itemTotal)}</span></div>
-
-      <div class="section-title">Payments:</div>
-      ${paymentsHtml}
-    </body>
-    </html>
-  `
-
-  if (await printOnNativeAndroid(printContent, 'Sales Report')) return
-
-  const printWindow = window.open('', '_blank')
-  if (printWindow) {
-    printWindow.document.write(printContent)
-    printWindow.document.close()
-    printWindow.focus()
+    reportData.value = {
+      services: Object.values(serviceGroups),
+      items: Object.values(itemGroups),
+      payments,
+      cashAdvances,
+      expenses,
+      serviceTotal,
+      itemTotal,
+      paymentTotal,
+      cashAdvanceTotal,
+      expenseTotal,
+      deductionTotal,
+      totalIncome: paymentTotal - deductionTotal
+    }
+  } catch (error) {
+    console.error('Could not prepare sales report:', error)
+    $q.notify({ type: 'negative', message: 'Could not load the report deductions.' })
+  } finally {
+    reportLoading.value = false
   }
 }
 
@@ -1497,7 +1457,6 @@ onMounted(() => {
   }
 
   loadBranches()
-  loadAccounts()
   loadServiceTypes()
   loadInventory()
   loadSales()
@@ -1553,6 +1512,185 @@ onMounted(() => {
 
 .print-btn:hover {
   background: rgba(233, 30, 140, 0.08);
+}
+
+.report-page {
+  min-height: 100vh;
+  background: #f8f5f7;
+  color: #4A2038;
+}
+
+.report-toolbar {
+  min-height: 76px;
+  padding: 12px clamp(18px, 4vw, 52px);
+  background: #4A2038;
+  color: white;
+}
+
+.report-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.report-period {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.82rem;
+}
+
+.report-content {
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  padding: 28px clamp(16px, 4vw, 48px) 48px;
+}
+
+.report-grid {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.report-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.report-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.report-panel {
+  display: flex;
+  min-height: 250px;
+  flex-direction: column;
+  padding: 20px;
+  border: 1px solid rgba(74, 32, 56, 0.12);
+  border-top: 4px solid #E91E8C;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 10px 26px rgba(74, 32, 56, 0.08);
+}
+
+.report-panel--payment {
+  border-top-color: #1976D2;
+}
+
+.report-panel--deduction {
+  border-top-color: #C62828;
+}
+
+.report-panel__header,
+.report-panel__total,
+.report-list__row,
+.income-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.report-panel__header {
+  margin-bottom: 16px;
+}
+
+.report-panel__header h2 {
+  margin: 2px 0 0;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.report-panel__header .q-icon {
+  color: #E91E8C;
+}
+
+.report-panel__eyebrow {
+  color: #8A4E71;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.report-list {
+  flex: 1;
+  max-height: 230px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.report-list__row {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(74, 32, 56, 0.08);
+  font-size: 0.84rem;
+}
+
+.report-list__row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.report-list__row small {
+  color: #8A4E71;
+}
+
+.report-list__row strong,
+.report-panel__total strong {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.report-empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: #9B7A8D;
+  font-size: 0.84rem;
+}
+
+.report-panel__total {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(74, 32, 56, 0.14);
+  font-weight: 800;
+}
+
+.income-summary {
+  min-height: 120px;
+  padding: 24px 28px;
+  border-radius: 8px;
+  background: #4A2038;
+  color: white;
+  box-shadow: 0 16px 34px rgba(74, 32, 56, 0.2);
+}
+
+.income-summary__label {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.income-summary__formula {
+  margin-top: 5px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.8rem;
+}
+
+.income-summary__value {
+  color: #FFB3D8;
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+  .report-grid--three {
+    grid-template-columns: 1fr;
+  }
+
+  .report-grid--two {
+    grid-template-columns: 1fr;
+  }
+
+  .income-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 /* ===== Filter card ===== */
