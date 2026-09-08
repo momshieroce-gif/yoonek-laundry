@@ -3,7 +3,7 @@
     <div class="page-header q-mb-lg">
       <div>
         <div class="page-title">Attendance Assignments</div>
-        <div class="page-subtitle">Assign employee schedules, branches, and hourly rates</div>
+        <div class="page-subtitle">Assign employee schedules, branches, and daily rates</div>
       </div>
       <div class="header-actions">
         <q-btn
@@ -51,10 +51,15 @@
           </div>
         </q-td>
       </template>
-      <template v-slot:body-cell-noOfHours="props">
+      <template v-slot:body-cell-workSchedule="props">
         <q-td :props="props">
           <div>{{ props.value }}</div>
-          <div class="schedule-caption">{{ getOvertimeLabel(props.value) }}</div>
+          <div class="schedule-caption">{{ props.row.noOfHoursPerDay }} hours per day</div>
+        </q-td>
+      </template>
+      <template v-slot:body-cell-ratePerDay="props">
+        <q-td :props="props">
+          <span class="rate-cell">{{ formatCurrency(props.value) }}</span>
         </q-td>
       </template>
       <template v-slot:body-cell-branchId="props">
@@ -104,36 +109,7 @@
         </q-card-section>
 
         <q-form @submit="saveAssignment">
-          <q-card-section class="q-gutter-md">
-            <q-select
-              v-model="assignmentForm.name"
-              outlined
-              label="Employee Name"
-              color="pink-7"
-              :options="nameOptions"
-              :loading="loadingNames"
-              :rules="[(value) => !!value || 'Employee name is required']"
-            >
-              <template v-slot:prepend>
-                <q-icon name="person" color="pink-7" />
-              </template>
-            </q-select>
-            <q-select
-              v-model="assignmentForm.noOfHoursId"
-              outlined
-              emit-value
-              map-options
-              label="Work Schedule"
-              color="pink-7"
-              :options="scheduleOptions"
-              :loading="loadingSchedules"
-              :rules="[(value) => !!value || 'Work schedule is required']"
-            >
-              <template v-slot:prepend>
-                <q-icon name="schedule" color="pink-7" />
-              </template>
-            </q-select>
-            <q-select
+           <q-select
               v-model="assignmentForm.branchId"
               outlined
               emit-value
@@ -148,16 +124,88 @@
                 <q-icon name="store" color="pink-7" />
               </template>
             </q-select>
+          <q-card-section class="q-gutter-md">
+            <q-select
+              v-model="assignmentForm.name"
+              outlined
+              label="Employee Name"
+              color="pink-7"
+              :options="nameOptions"
+              :loading="loadingNames"
+              :rules="[(value) => !!value || 'Employee name is required']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="person" color="pink-7" />
+              </template>
+            </q-select>
+
             <q-input
-              v-model.number="assignmentForm.ratePerHour"
+              v-model="assignmentForm.workSchedule"
+              outlined
+              label="Work Schedule"
+              color="pink-7"
+              :rules="[(value) => !!value || 'Work schedule is required']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="event" color="pink-7" />
+              </template>
+            </q-input>
+            
+            <q-input
+              v-model.number="assignmentForm.noOfHoursPerDay"
+              outlined
+              type="number"
+              min="0.01"
+              step="0.01"
+              label="Hours Per Day"
+              color="pink-7"
+              :rules="[(value) => Number(value) > 0 || 'Hours per day must be greater than 0']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="schedule" color="pink-7" />
+              </template>
+            </q-input>
+            
+           
+            <q-input
+              v-model.number="assignmentForm.ratePerDay"
               outlined
               type="number"
               min="0.01"
               step="0.01"
               prefix="₱"
-              label="Rate Per Hour"
+              label="Rate Per Day"
               color="pink-7"
-              :rules="[(value) => Number(value) > 0 || 'Rate per hour must be greater than 0']"
+              :rules="[(value) => Number(value) > 0 || 'Rate per day must be greater than 0']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="payments" color="pink-7" />
+              </template>
+            </q-input>
+            <q-input
+              v-model.number="assignmentForm.noOfHoursOvertime"
+              outlined
+              type="number"
+              min="0"
+              step="0.01"
+              label="Overtime Per Day"
+              color="pink-7"
+              :rules="[(value) => Number(value) >= 0 || 'Overtime per day cannot be negative']"
+            >
+              <template v-slot:prepend>
+                <q-icon name="more_time" color="pink-7" />
+              </template>
+            </q-input>
+            <q-input
+              v-model.number="assignmentForm.ratePerHourOvertime"
+              outlined
+              type="number"
+              min="0.01"
+              step="0.01"
+              prefix="₱"
+              label="Overtime Rate Per Hour"
+              color="pink-7"
+              :rules="[(value) => Number(value) > 0 || 'Overtime rate per hour must be greater than 0']"
             >
               <template v-slot:prepend>
                 <q-icon name="payments" color="pink-7" />
@@ -189,11 +237,9 @@ import { addDoc, collection, db, deleteDoc, doc, getDocs, updateDoc } from '../b
 
 const $q = useQuasar()
 const attendanceNames = ref([])
-const schedules = ref([])
 const branches = ref([])
 const assignments = ref([])
 const loadingNames = ref(false)
-const loadingSchedules = ref(false)
 const loadingBranches = ref(false)
 const loadingAssignments = ref(false)
 const saving = ref(false)
@@ -202,32 +248,29 @@ const editingAssignmentId = ref(null)
 
 const loading = computed(() => (
   loadingNames.value ||
-  loadingSchedules.value ||
   loadingBranches.value ||
   loadingAssignments.value
 ))
 
 const assignmentForm = ref({
   name: null,
-  noOfHoursId: null,
+  noOfHoursPerDay: null,
+  workSchedule: null,
   branchId: null,
-  ratePerHour: null
+  ratePerDay: null,
+  noOfHoursOvertime: null,
+  ratePerHourOvertime: null
 })
 
 const columns = [
   { name: 'name', label: 'Employee', field: 'name', align: 'left', sortable: true },
-  { name: 'noOfHours', label: 'Work Schedule', field: 'noOfHours', align: 'left', sortable: true },
+  { name: 'workSchedule', label: 'Work Schedule', field: 'workSchedule', align: 'left', sortable: true },
   { name: 'branchId', label: 'Branch', field: 'branchId', align: 'left', sortable: true },
-  { name: 'ratePerHour', label: 'Rate Per Hour', field: 'ratePerHour', align: 'right', sortable: true },
+  { name: 'ratePerDay', label: 'Rate Per Day', field: 'ratePerDay', align: 'right', sortable: true },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
 
 const nameOptions = computed(() => [...new Set(attendanceNames.value)].sort((first, second) => first.localeCompare(second)))
-
-const scheduleOptions = computed(() => schedules.value.map((schedule) => ({
-  label: `${schedule.name} (${schedule.overtime} ${schedule.overtime === 1 ? 'hour' : 'hours'} overtime)`,
-  value: schedule.id
-})))
 
 const branchOptions = computed(() => branches.value.map((branch) => ({
   label: branch.name,
@@ -245,12 +288,6 @@ function getBranchLabel (branchId) {
   return branches.value.find((branch) => branch.id === branchId)?.name || branchId || 'Unassigned'
 }
 
-function getOvertimeLabel (scheduleName) {
-  const overtime = schedules.value.find((schedule) => schedule.name === scheduleName)?.overtime
-  if (!Number.isFinite(overtime)) return 'Overtime unavailable'
-  return `${overtime} ${overtime === 1 ? 'hour' : 'hours'} overtime`
-}
-
 async function loadNames () {
   loadingNames.value = true
   try {
@@ -258,18 +295,6 @@ async function loadNames () {
     attendanceNames.value = snapshot.docs.map((item) => item.data().name).filter(Boolean)
   } finally {
     loadingNames.value = false
-  }
-}
-
-async function loadSchedules () {
-  loadingSchedules.value = true
-  try {
-    const snapshot = await getDocs(collection(db, 'noOfHours'))
-    schedules.value = snapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() }))
-      .sort((first, second) => first.name.localeCompare(second.name))
-  } finally {
-    loadingSchedules.value = false
   }
 }
 
@@ -299,7 +324,7 @@ async function loadAssignments () {
 
 async function loadPageData () {
   try {
-    await Promise.all([loadNames(), loadSchedules(), loadBranches(), loadAssignments()])
+    await Promise.all([loadNames(), loadBranches(), loadAssignments()])
   } catch (error) {
     console.error('Could not load attendance assignment data:', error)
     $q.notify({ type: 'negative', message: 'Could not load attendance assignment data.' })
@@ -309,9 +334,12 @@ async function loadPageData () {
 function resetForm () {
   assignmentForm.value = {
     name: null,
-    noOfHoursId: null,
+    noOfHoursPerDay: null,
+    workSchedule: null,
     branchId: null,
-    ratePerHour: null
+    ratePerDay: null,
+    noOfHoursOvertime: null,
+    ratePerHourOvertime: null
   }
 }
 
@@ -325,17 +353,22 @@ function openEditDialog (assignment) {
   editingAssignmentId.value = assignment.id
   assignmentForm.value = {
     name: assignment.name,
-    noOfHoursId: assignment.noOfHoursId || schedules.value.find((schedule) => schedule.name === assignment.noOfHours)?.id || null,
+    noOfHoursPerDay: assignment.noOfHoursPerDay,
+    workSchedule: assignment.workSchedule || assignment.noOfHours || null,
     branchId: assignment.branchId,
-    ratePerHour: assignment.ratePerHour
+    ratePerDay: assignment.ratePerDay,
+    noOfHoursOvertime: assignment.noOfHoursOvertime,
+    ratePerHourOvertime: assignment.ratePerHourOvertime
   }
   assignmentDialog.value = true
 }
 
 async function saveAssignment () {
-  const ratePerHour = Number(assignmentForm.value.ratePerHour)
-  const schedule = schedules.value.find((item) => item.id === assignmentForm.value.noOfHoursId)
-  if (!assignmentForm.value.name || !schedule || !assignmentForm.value.branchId || ratePerHour <= 0) {
+  const noOfHoursPerDay = Number(assignmentForm.value.noOfHoursPerDay)
+  const ratePerDay = Number(assignmentForm.value.ratePerDay)
+  const noOfHoursOvertime = Number(assignmentForm.value.noOfHoursOvertime)
+  const ratePerHourOvertime = Number(assignmentForm.value.ratePerHourOvertime)
+  if (!assignmentForm.value.name || !assignmentForm.value.workSchedule || !assignmentForm.value.branchId || noOfHoursPerDay <= 0 || ratePerDay <= 0 || noOfHoursOvertime < 0 || ratePerHourOvertime <= 0) {
     $q.notify({ type: 'warning', message: 'Please complete all assignment details.' })
     return
   }
@@ -344,10 +377,12 @@ async function saveAssignment () {
   try {
     const assignmentData = {
       name: assignmentForm.value.name,
-      noOfHours: schedule.name,
-      noOfHoursId: schedule.id,
+      noOfHoursPerDay,
+      workSchedule: assignmentForm.value.workSchedule,
       branchId: assignmentForm.value.branchId,
-      ratePerHour
+      ratePerDay,
+      noOfHoursOvertime,
+      ratePerHourOvertime
     }
 
     if (editingAssignmentId.value) {

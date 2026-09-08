@@ -422,6 +422,9 @@
             <div class="report-period">{{ reportBranch }} · {{ reportPeriod }}</div>
           </div>
           <q-space />
+          <q-btn flat dense icon="print" label="Print Report" @click="printReport">
+            <q-tooltip>Print report</q-tooltip>
+          </q-btn>
           <q-btn flat round dense icon="close" v-close-popup>
             <q-tooltip>Close report</q-tooltip>
           </q-btn>
@@ -489,6 +492,24 @@
           </div>
 
           <div class="report-grid report-grid--two">
+            <section class="report-panel report-panel--deduction">
+              <div class="report-panel__header">
+                <div>
+                  <div class="report-panel__eyebrow">Deduction</div>
+                  <h2>Unpaid Sales</h2>
+                </div>
+                <q-icon name="money_off" size="26px" />
+              </div>
+              <div v-if="reportData.unpaidSales.length" class="report-list">
+                <div v-for="entry in reportData.unpaidSales" :key="entry.id" class="report-list__row">
+                  <span>{{ entry.label }}</span>
+                  <strong>{{ formatCurrency(entry.amount) }}</strong>
+                </div>
+              </div>
+              <div v-else class="report-empty">No unpaid sales</div>
+              <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(reportData.unpaidSalesTotal) }}</strong></div>
+            </section>
+
             <section class="report-panel report-panel--deduction">
               <div class="report-panel__header">
                 <div>
@@ -584,11 +605,13 @@ const reportData = ref({
   services: [],
   items: [],
   payments: [],
+  unpaidSales: [],
   cashAdvances: [],
   expenses: [],
   serviceTotal: 0,
   itemTotal: 0,
   paymentTotal: 0,
+  unpaidSalesTotal: 0,
   cashAdvanceTotal: 0,
   expenseTotal: 0,
   deductionTotal: 0,
@@ -1324,6 +1347,89 @@ async function printSale(sale) {
   }
 }
 
+function printReport() {
+  const reportRows = entries => entries.length
+    ? entries.map(entry => `
+      <tr>
+        <td>${escapeReportHtml(entry.label)}</td>
+        <td class="amount">${formatCurrency(entry.amount)}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="2" class="empty">No records</td></tr>'
+  const reportSection = (title, entries, total) => `
+    <section>
+      <h2>${escapeReportHtml(title)}</h2>
+      <table>
+        <tbody>${reportRows(entries)}</tbody>
+        <tfoot><tr><th>Total</th><th class="amount">${formatCurrency(total)}</th></tr></tfoot>
+      </table>
+    </section>
+  `
+  const paymentSections = reportData.value.payments
+    .map(payment => reportSection(`${payment.type} Listing`, payment.entries, payment.total))
+    .join('')
+  const printContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Sales Report</title>
+        <style>
+          @page { size: A4; margin: 16mm; }
+          body { color: #222; font-family: Arial, sans-serif; font-size: 11px; }
+          h1 { margin: 0; font-size: 22px; }
+          .period { margin: 5px 0 20px; color: #555; }
+          .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 14px; }
+          section { border: 1px dotted #444; break-inside: avoid; }
+          h2 { margin: 0; padding: 9px 10px; border-bottom: 1px solid #444; font-size: 13px; }
+          table { width: 100%; border-collapse: collapse; }
+          td, th { padding: 7px 10px; border-bottom: 1px dotted #999; text-align: left; }
+          tfoot th { border-bottom: 0; border-top: 1px solid #444; font-weight: 700; }
+          .amount { text-align: right; white-space: nowrap; }
+          .empty { color: #666; text-align: center; }
+          .summary { margin-top: 16px; padding: 14px; border: 2px solid #222; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 700; }
+          .summary small { display: block; margin-top: 4px; color: #555; font-size: 10px; font-weight: 400; }
+        </style>
+      </head>
+      <body>
+        <h1>Sales Report</h1>
+        <div class="period">${escapeReportHtml(reportBranch.value)} | ${escapeReportHtml(reportPeriod.value)}</div>
+        <div class="grid">
+          ${reportSection('Service Types', reportData.value.services, reportData.value.serviceTotal)}
+          ${reportSection('Items', reportData.value.items, reportData.value.itemTotal)}
+        </div>
+        <div class="grid">${paymentSections}</div>
+        <div class="grid">
+          ${reportSection('Unpaid Sales', reportData.value.unpaidSales, reportData.value.unpaidSalesTotal)}
+          ${reportSection('Cash Advances', reportData.value.cashAdvances, reportData.value.cashAdvanceTotal)}
+          ${reportSection('Expenses', reportData.value.expenses, reportData.value.expenseTotal)}
+        </div>
+        <div class="summary">
+          <div>Total Income<small>Payments ${formatCurrency(reportData.value.paymentTotal)} - deductions ${formatCurrency(reportData.value.deductionTotal)}</small></div>
+          <div>${formatCurrency(reportData.value.totalIncome)}</div>
+        </div>
+      </body>
+    </html>
+  `
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    $q.notify({ type: 'negative', message: 'Unable to open the report for printing.' })
+    return
+  }
+  printWindow.document.write(printContent)
+  printWindow.document.close()
+  printWindow.focus()
+  printWindow.print()
+}
+
+function escapeReportHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
 async function pageReport() {
   showReportDialog.value = true
   reportLoading.value = true
@@ -1375,11 +1481,19 @@ async function pageReport() {
     { type: 'Bank Transfer', icon: 'account_balance' }
   ]
   const paymentBuckets = Object.fromEntries(paymentTypes.map(payment => [payment.type, []]))
+  const unpaidSales = []
 
   filteredSales.value.forEach(sale => {
+    const total = Number(sale.total ?? sale.amount ?? 0)
+    if (String(sale.paymentStatus || '').toLowerCase() === 'unpaid') {
+      unpaidSales.push({
+        id: sale.id,
+        label: sale.invoiceNo || sale.customerName || sale.id,
+        amount: total
+      })
+    }
     const payment = paymentTypes.find(entry => entry.type.toLowerCase() === String(sale.paymentType || '').toLowerCase())
     if (!payment) return
-    const total = Number(sale.total ?? sale.amount ?? 0)
     paymentBuckets[payment.type].push({
       id: sale.id,
       label: sale.invoiceNo || sale.customerName || sale.id,
@@ -1419,19 +1533,22 @@ async function pageReport() {
       total: paymentBuckets[payment.type].reduce((sum, entry) => sum + entry.amount, 0)
     }))
     const paymentTotal = payments.reduce((sum, payment) => sum + payment.total, 0)
+    const unpaidSalesTotal = unpaidSales.reduce((sum, entry) => sum + entry.amount, 0)
     const cashAdvanceTotal = cashAdvances.reduce((sum, entry) => sum + entry.amount, 0)
     const expenseTotal = expenses.reduce((sum, entry) => sum + entry.amount, 0)
-    const deductionTotal = cashAdvanceTotal + expenseTotal
+    const deductionTotal = unpaidSalesTotal + cashAdvanceTotal + expenseTotal
 
     reportData.value = {
       services: Object.values(serviceGroups),
       items: Object.values(itemGroups),
       payments,
+      unpaidSales,
       cashAdvances,
       expenses,
       serviceTotal,
       itemTotal,
       paymentTotal,
+      unpaidSalesTotal,
       cashAdvanceTotal,
       expenseTotal,
       deductionTotal,

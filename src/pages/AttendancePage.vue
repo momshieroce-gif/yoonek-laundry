@@ -495,42 +495,27 @@ async function getAttendancePayConfig (employeeName) {
   const assignment = assignmentSnapshot.docs[0]?.data()
   if (!assignment) return null
 
-  let schedule
-  if (assignment.noOfHoursId) {
-    const scheduleSnapshot = await getDoc(doc(db, 'noOfHours', assignment.noOfHoursId))
-    schedule = scheduleSnapshot.exists() ? scheduleSnapshot.data() : null
-  }
-  if (!schedule && assignment.noOfHours) {
-    const scheduleSnapshot = await getDocs(query(
-      collection(db, 'noOfHours'),
-      where('name', '==', assignment.noOfHours)
-    ))
-    schedule = scheduleSnapshot.docs[0]?.data()
-  }
-
-  const assignmentRatePerHour = Number(assignment.ratePerHour) || 0
-  const regularHours = Number(schedule?.regularHours) || 0
-  const overtime = Number(schedule?.overtime) || 0
-  if (assignmentRatePerHour <= 0 || regularHours <= 0) return null
+  const ratePerDay = Number(assignment.ratePerDay) || 0
+  const regularHours = Number(assignment.noOfHoursPerDay) || 0
+  const overtime = Number(assignment.noOfHoursOvertime) || 0
+  const ratePerHourOvertime = Number(assignment.ratePerHourOvertime) || 0
+  if (ratePerDay <= 0 || regularHours <= 0 || overtime < 0 || ratePerHourOvertime <= 0) return null
 
   return {
-    assignmentRatePerHour,
+    ratePerDay,
     regularHours,
     overtime,
-    scheduledHours: regularHours + overtime
+    scheduledHours: regularHours + overtime,
+    ratePerHourOvertime
   }
 }
 
 function calculateAttendancePay (noOfHours, payConfig) {
   const workedHours = Number(noOfHours) || 0
-  const completedHours = Math.floor(workedHours)
-  const reachedSchedule = completedHours >= payConfig.scheduledHours
-  const regularHours = reachedSchedule ? payConfig.regularHours : workedHours
-  const overtimeHours = reachedSchedule
-    ? Math.max(0, completedHours - payConfig.regularHours)
-    : 0
-  const regularPay = regularHours * payConfig.assignmentRatePerHour
-  const overtimePay = overtimeHours * payConfig.assignmentRatePerHour
+  const regularHours = Math.min(workedHours, payConfig.regularHours)
+  const overtimeHours = Math.floor(Math.max(0, workedHours - payConfig.regularHours))
+  const regularPay = workedHours >= payConfig.regularHours ? payConfig.ratePerDay : (workedHours / payConfig.regularHours) * payConfig.ratePerDay
+  const overtimePay = overtimeHours * payConfig.ratePerHourOvertime
 
   return {
     regularHours,
@@ -583,7 +568,8 @@ async function printPaySlip () {
           name: data.name,
           createdAt,
           noOfHours,
-          ratePerHour: payConfig.assignmentRatePerHour,
+          ratePerDay: payConfig.ratePerDay,
+          ratePerHourOvertime: payConfig.ratePerHourOvertime,
           ...pay
         }
       })
@@ -617,7 +603,8 @@ async function printPaySlip () {
       startDate,
       endDate,
       noOfHours,
-      ratePerHour: payConfig.assignmentRatePerHour,
+      ratePerDay: payConfig.ratePerDay,
+      ratePerHourOvertime: payConfig.ratePerHourOvertime,
       regularPayTotal,
       overtimePayTotal,
       grossTotal,
@@ -635,9 +622,9 @@ async function printPaySlip () {
           timeStyle: 'short'
         }))}</td>
         <td class="number">${formatNumber(row.noOfHours)}</td>
-        <td class="number">${formatNumber(row.ratePerHour)}</td>
-        <td class="number">${formatNumber(row.regularHours)} × ${formatNumber(row.ratePerHour)} = ${formatNumber(row.regularPay)}</td>
-        <td class="number">${formatNumber(row.overtimeHours)} × ${formatNumber(row.ratePerHour)} = ${formatNumber(row.overtimePay)}</td>
+        <td class="number">${formatNumber(row.ratePerDay)}</td>
+        <td class="number">${formatNumber(row.regularHours)} hours = ${formatNumber(row.regularPay)}</td>
+        <td class="number">${formatNumber(row.overtimeHours)} × ${formatNumber(row.ratePerHourOvertime)} = ${formatNumber(row.overtimePay)}</td>
         <td class="number">${formatNumber(row.total)}</td>
       </tr>
     `).join('')
@@ -671,7 +658,7 @@ async function printPaySlip () {
               <tr>
                 <th>Date</th>
                 <th>No. of Hours</th>
-                <th>Rate Per Hour</th>
+                <th>Rate Per Day</th>
                 <th>Regular Pay</th>
                 <th>Overtime Pay</th>
                 <th>Total</th>
@@ -794,7 +781,8 @@ async function recordEmployeeSalary () {
           startDate,
           endDate,
           noOfHours: attendanceLogs.reduce((sum, row) => sum + row.noOfHours, 0),
-          ratePerHour: payConfig.assignmentRatePerHour,
+          ratePerDay: payConfig.ratePerDay,
+          ratePerHourOvertime: payConfig.ratePerHourOvertime,
           regularPayTotal,
           overtimePayTotal,
           grossTotal,
