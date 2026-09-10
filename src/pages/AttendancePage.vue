@@ -103,6 +103,17 @@
               @click="printPaySlip"
             />
           </div>
+          <div class="col-12 col-sm-auto">
+            <q-btn
+              color="pink-7"
+              icon="savings"
+              label="Create Employee Salary"
+              unelevated
+              :loading="recordingEmployeeSalary"
+              :disable="!selectedAttendanceName || !invoiceStartDate || !invoiceEndDate"
+              @click="recordEmployeeSalary"
+            />
+          </div>
         </div>
 
         <q-table
@@ -586,9 +597,6 @@ async function printPaySlip () {
       return
     }
 
-    const noOfHours = payslipRows.reduce((sum, row) => sum + row.noOfHours, 0)
-    const regularPayTotal = payslipRows.reduce((sum, row) => sum + row.regularPay, 0)
-    const overtimePayTotal = payslipRows.reduce((sum, row) => sum + row.overtimePay, 0)
     const grossTotal = payslipRows.reduce((sum, row) => sum + row.total, 0)
     const cashAdvanceTotal = cashAdvanceSnapshot.docs.reduce((sum, docSnap) => {
       const data = docSnap.data()
@@ -597,22 +605,6 @@ async function printPaySlip () {
       return sum + (Number(data.amount) || 0)
     }, 0)
     const grandTotal = grossTotal - cashAdvanceTotal
-
-    await addDoc(collection(db, 'payslips'), {
-      name: employeeName,
-      startDate,
-      endDate,
-      noOfHours,
-      ratePerDay: payConfig.ratePerDay,
-      ratePerHourOvertime: payConfig.ratePerHourOvertime,
-      regularPayTotal,
-      overtimePayTotal,
-      grossTotal,
-      cashAdvanceTotal,
-      grandTotal,
-      createdAt: serverTimestamp(),
-      createdBy: userStore.user?.uid || null
-    })
 
     const tableRows = payslipRows.map((row) => `
       <tr>
@@ -754,6 +746,15 @@ async function recordEmployeeSalary () {
       return
     }
 
+    const rows = attendanceLogs.map((row, index) => ({
+      attendanceId: row.id,
+      createdAt: row.createdAt,
+      noOfHours: row.noOfHours,
+      ratePerDay: payConfig.ratePerDay,
+      ratePerHourOvertime: payConfig.ratePerHourOvertime,
+      ...attendancePay[index]
+    }))
+
     const cashAdvances = cashAdvanceSnapshot.docs
       .map((docSnapshot) => ({ id: docSnapshot.id, ref: docSnapshot.ref, ...docSnapshot.data() }))
       .filter((cashAdvance) => {
@@ -761,15 +762,15 @@ async function recordEmployeeSalary () {
         return !cashAdvance.employeeSalaryId && createdAt instanceof Date && createdAt >= startDate && createdAt <= endDate
       })
     const cashAdvanceTotal = cashAdvances.reduce((sum, cashAdvance) => sum + (Number(cashAdvance.amount) || 0), 0)
-    const netTotal = grossTotal - cashAdvanceTotal
-    if (netTotal < 0) {
+    const grandTotal = grossTotal - cashAdvanceTotal
+    if (grandTotal < 0) {
       $q.notify({ type: 'warning', message: 'Cash advances exceed gross salary. Adjust the period or advances before recording.' })
       return
     }
 
     $q.dialog({
       title: 'Record Employee Salary',
-      message: `Record ${employeeName}'s salary: gross ${formatNumber(grossTotal)}, advances ${formatNumber(cashAdvanceTotal)}, net pay ${formatNumber(netTotal)}?`,
+      message: `Record ${employeeName}'s salary: gross ${formatNumber(grossTotal)}, advances ${formatNumber(cashAdvanceTotal)}, grand total ${formatNumber(grandTotal)}?`,
       cancel: true,
       persistent: true
     }).onOk(async () => {
@@ -787,7 +788,8 @@ async function recordEmployeeSalary () {
           overtimePayTotal,
           grossTotal,
           cashAdvanceTotal,
-          netTotal,
+          grandTotal,
+          rows,
           attendanceIds: attendanceLogs.map((row) => row.id),
           cashAdvanceIds: cashAdvances.map((cashAdvance) => cashAdvance.id),
           createdAt: serverTimestamp(),

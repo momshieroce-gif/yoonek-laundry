@@ -365,6 +365,48 @@
                   <q-icon name="fa-solid fa-peso-sign" color="pink-5" />
                 </template>
               </q-input>
+              <div class="row justify-end q-mb-md">
+              <q-btn
+                v-if="!showSecondPayment"
+                flat
+                dense
+                icon="add"
+                label="New Payment Type"
+                class="cancel-btn"
+                @click="toggleSecondPayment"
+              />
+            </div>
+            <div v-if="showSecondPayment" class="row q-col-gutter-md items-start q-mb-md">
+              <div class="col-7">
+                <q-select
+                  v-model="saleForm.paymentType2"
+                  label="Payment Type 2"
+                  :options="paymentTypeOptions"
+                  outlined
+                  dense
+                  class="sale-input"
+                  style="margin-left: 20px;"
+                />
+              </div>
+              <div class="col-4">
+                <q-input
+                  v-model.number="saleForm.enterAmount2"
+                  label="Amount"
+                  type="number"
+                  step="0.01"
+                  outlined
+                  dense
+                  class="sale-input"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="fa-solid fa-peso-sign" color="pink-5" />
+                  </template>
+                </q-input>
+              </div>
+              <div class="col-1">
+                <q-btn flat round dense icon="remove" color="negative" @click="toggleSecondPayment" />
+              </div>
+            </div>
               <div class="cash-panel__change" :class="changeAmount < 0 ? 'cash-panel__change--negative' : 'cash-panel__change--positive'">
                 <div class="cash-panel__label">
                   <q-icon :name="changeAmount < 0 ? 'error_outline' : 'check_circle'" size="18px" />
@@ -373,6 +415,9 @@
                 <div class="cash-panel__value">{{ formatCurrency(Math.abs(changeAmount)) }}</div>
               </div>
             </div>
+             
+            
+           
             <q-select
               v-model="saleForm.paymentStatus"
               label="Payment Status"
@@ -797,6 +842,16 @@ function getStatusColor(status) {
   return colors[status] || 'grey'
 }
 
+const showSecondPayment = ref(false)
+
+function toggleSecondPayment() {
+  showSecondPayment.value = !showSecondPayment.value
+  if (!showSecondPayment.value) {
+    saleForm.value.paymentType2 = ''
+    saleForm.value.enterAmount2 = 0
+  }
+}
+
 const saleForm = ref({
   branchId: '',
   invoiceNo: '00',
@@ -809,6 +864,8 @@ const saleForm = ref({
   paymentStatus: 'Unpaid',
   paymentType: 'Cash',
   enterAmount: 0,
+  paymentType2: '',
+  enterAmount2: 0,
   notes: ''
 })
 
@@ -914,9 +971,11 @@ const overallTotal = computed(() => {
   return Number((servicesTotal + itemsTotal).toFixed(2))
 })
 
-const changeAmount = computed(() =>
-  Number((Number(saleForm.value.enterAmount || 0) - overallTotal.value).toFixed(2))
-)
+const changeAmount = computed(() => {
+  const tendered = Number(saleForm.value.enterAmount || 0) +
+    (showSecondPayment.value ? Number(saleForm.value.enterAmount2 || 0) : 0)
+  return Number((tendered - overallTotal.value).toFixed(2))
+})
 
 const groupedSaleItems = computed(() => {
   const groups = {}
@@ -967,8 +1026,11 @@ function editSale(sale) {
     paymentStatus: sale.paymentStatus,
     paymentType: sale.paymentType,
     enterAmount: sale.enterAmount || 0,
+    paymentType2: sale.paymentType2 || '',
+    enterAmount2: sale.enterAmount2 || 0,
     notes: sale.notes
   }
+  showSecondPayment.value = !!sale.paymentType2
   saleForm.value.services.forEach(service => {
     if (!service.price) service.price = getServiceTotal(service.name)
   })
@@ -1202,11 +1264,14 @@ function resetForm() {
     paymentStatus: 'Unpaid',
     paymentType: 'Cash',
     enterAmount: 0,
+    paymentType2: '',
+    enterAmount2: 0,
     notes: ''
   }
   saleItems.value = []
   selectedInventory.value = null
   selectedService.value = ''
+  showSecondPayment.value = false
 }
 
 async function printOnNativeAndroid(html, jobName) {
@@ -1492,13 +1557,31 @@ async function pageReport() {
         amount: total
       })
     }
+
+    // Split total between paymentType and paymentType2 when a second payment type was used
+    const hasSecondPayment = !!sale.paymentType2
+    const amount2 = hasSecondPayment ? Number(sale.enterAmount2 || 0) : 0
+    const amount1 = hasSecondPayment ? Number((total - amount2).toFixed(2)) : total
+
     const payment = paymentTypes.find(entry => entry.type.toLowerCase() === String(sale.paymentType || '').toLowerCase())
-    if (!payment) return
-    paymentBuckets[payment.type].push({
-      id: sale.id,
-      label: sale.invoiceNo || sale.customerName || sale.id,
-      amount: total
-    })
+    if (payment) {
+      paymentBuckets[payment.type].push({
+        id: sale.id,
+        label: sale.invoiceNo || sale.customerName || sale.id,
+        amount: amount1
+      })
+    }
+
+    if (hasSecondPayment) {
+      const payment2 = paymentTypes.find(entry => entry.type.toLowerCase() === String(sale.paymentType2 || '').toLowerCase())
+      if (payment2) {
+        paymentBuckets[payment2.type].push({
+          id: `${sale.id}-2`,
+          label: sale.invoiceNo || sale.customerName || sale.id,
+          amount: amount2
+        })
+      }
+    }
   })
 
   try {
