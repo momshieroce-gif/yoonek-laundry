@@ -10,10 +10,8 @@
     "lint": "eslint --ext .js,.vue ./",
     "format": "prettier --write \"**/*.{js,vue,scss,html,md,json}\" --ignore-path .gitignore",
     "server": "node server/index.js",
-    "seed": "node server/seed.js",
-    "sync-sales": "node server/sync-sales.js",
-    "reset-sample-journals": "node server/reset-sample-journals-to-draft.js",
-    "dev:all": "concurrently \"npm run dev\" \"npm run server\""
+    "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
+    "seed": "node server/seed.js"
   },
   "dependencies": {
     "@quasar/extras": "^1.16.4",

@@ -57,36 +57,6 @@
           v-if="userStore.isAdmin"
           clickable
           v-ripple
-          @click="navigateTo('accounts')"
-          :class="['sidebar-item', isActiveRoute('accounts') ? 'active-item' : '']"
-        >
-          <q-item-section avatar>
-            <q-icon name="account_tree" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label>Accounts</q-item-label>
-          </q-item-section>
-        </q-item>
-
-        <q-item
-          v-if="userStore.isAdmin"
-          clickable
-          v-ripple
-          @click="navigateTo('journal-entries')"
-          :class="['sidebar-item', isActiveRoute('journal-entries') ? 'active-item' : '']"
-        >
-          <q-item-section avatar>
-            <q-icon name="menu_book" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label>Journal Entries</q-item-label>
-          </q-item-section>
-        </q-item>
-
-        <q-item
-          v-if="userStore.isAdmin"
-          clickable
-          v-ripple
           @click="navigateTo('branches')"
           :class="['sidebar-item', isActiveRoute('branches') ? 'active-item' : '']"
         >
@@ -196,6 +166,21 @@
           </q-item-section>
           <q-item-section>
             <q-item-label>Attendance</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          v-if="userStore.isAdmin"
+          clickable
+          v-ripple
+          @click="navigateTo('attendance-assignments')"
+          :class="['sidebar-item', isActiveRoute('attendance-assignments') ? 'active-item' : '']"
+        >
+          <q-item-section avatar>
+            <q-icon name="assignment_ind" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Attendance Assignments</q-item-label>
           </q-item-section>
         </q-item>
 

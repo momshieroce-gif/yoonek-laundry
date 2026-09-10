@@ -95,17 +95,6 @@
           <div class="col-12 col-sm-auto">
             <q-btn
               color="pink-7"
-              icon="payments"
-              label="Create Rate"
-              unelevated
-              :loading="creatingRate"
-              :disable="!selectedAttendanceName"
-              @click="createRate"
-            />
-          </div>
-          <div class="col-12 col-sm-auto">
-            <q-btn
-              color="pink-7"
               icon="print"
               label="Print Payslip"
               outline
@@ -117,8 +106,8 @@
           <div class="col-12 col-sm-auto">
             <q-btn
               color="pink-7"
-              icon="post_add"
-              label="Record Employee Salary"
+              icon="savings"
+              label="Create Employee Salary"
               unelevated
               :loading="recordingEmployeeSalary"
               :disable="!selectedAttendanceName || !invoiceStartDate || !invoiceEndDate"
@@ -226,18 +215,6 @@
               label="No. of Hours"
               color="pink-7"
               :rules="[(val) => Number.isFinite(Number(val)) && Number(val) >= 0 || 'No. of hours must be 0 or more']"
-            />
-            <q-input
-              v-model.number="editAttendanceForm.ratePerHour"
-              outlined
-              dense
-              type="number"
-              min="0"
-              step="0.01"
-              prefix="₱"
-              label="Rate Per Hour"
-              color="pink-7"
-              :rules="[(val) => Number.isFinite(Number(val)) && Number(val) >= 0 || 'Rate per hour must be 0 or more']"
             />
             <q-input
               v-model="editAttendanceForm.createdAt"
@@ -366,7 +343,6 @@ const attendanceNameOptions = ref([])
 const selectedAttendanceName = ref(null)
 const loadingAttendance = ref(false)
 const loadingAttendanceNames = ref(false)
-const creatingRate = ref(false)
 const printingPaySlip = ref(false)
 const recordingEmployeeSalary = ref(false)
 const invoiceStartDate = ref('')
@@ -378,7 +354,6 @@ const editingAttendanceId = ref(null)
 const editAttendanceForm = ref({
   logType: 'In',
   noOfHours: 0,
-  ratePerHour: 0,
   createdAt: ''
 })
 const hasNextAttendancePage = ref(false)
@@ -491,7 +466,6 @@ async function loadAttendancePage (cursor) {
         logType: data.logType,
         file: data.file,
         noOfHours: Number(data.noOfHours) || 0,
-        ratePerHour: Number(data.ratePerHour) || 0,
         createdAt: formatAttendanceTimestamp(data.createdAt),
         createdAtDate
       }
@@ -524,49 +498,43 @@ async function reloadAttendance () {
   await loadAttendancePage(undefined)
 }
 
-async function createRate () {
-  if (!userStore.isAdmin) return
-  if (!selectedAttendanceName.value) return
+async function getAttendancePayConfig (employeeName) {
+  const assignmentSnapshot = await getDocs(query(
+    collection(db, 'attendanceAssignments'),
+    where('name', '==', employeeName)
+  ))
+  const assignment = assignmentSnapshot.docs[0]?.data()
+  if (!assignment) return null
 
-  $q.dialog({
-    title: 'Create Rate',
-    message: `Set rate per hour for ${selectedAttendanceName.value}.`,
-    prompt: {
-      model: '',
-      type: 'number',
-      min: 0,
-      step: '0.01',
-      label: 'Rate per hour'
-    },
-    cancel: true,
-    persistent: true
-  }).onOk(async (value) => {
-    const ratePerHour = Number(value)
-    if (!Number.isFinite(ratePerHour) || ratePerHour <= 0) {
-      $q.notify({ type: 'warning', message: 'Please enter a valid rate per hour.' })
-      return
-    }
+  const ratePerDay = Number(assignment.ratePerDay) || 0
+  const regularHours = Number(assignment.noOfHoursPerDay) || 0
+  const overtime = Number(assignment.noOfHoursOvertime) || 0
+  const ratePerHourOvertime = Number(assignment.ratePerHourOvertime) || 0
+  if (ratePerDay <= 0 || regularHours <= 0 || overtime < 0 || ratePerHourOvertime <= 0) return null
 
-    creatingRate.value = true
-    try {
-      const snapshot = await getDocs(query(
-        collection(db, 'attendance'),
-        where('name', '==', selectedAttendanceName.value)
-      ))
-      const docsWithoutRate = snapshot.docs.filter((docSnap) => {
-        const data = docSnap.data()
-        return data.ratePerHour === undefined || data.ratePerHour === null || data.ratePerHour === ''
-      })
-      await Promise.all(docsWithoutRate.map((docSnap) => updateDoc(doc(db, 'attendance', docSnap.id), { ratePerHour })))
-      $q.notify({ type: 'positive', message: `Rate created for ${docsWithoutRate.length} attendance log(s).` })
-      await reloadAttendance()
-    } catch (error) {
-      console.error('Could not create attendance rate:', error)
-      $q.notify({ type: 'negative', message: 'Could not create attendance rate.' })
-    } finally {
-      creatingRate.value = false
-    }
-  })
+  return {
+    ratePerDay,
+    regularHours,
+    overtime,
+    scheduledHours: regularHours + overtime,
+    ratePerHourOvertime
+  }
+}
+
+function calculateAttendancePay (noOfHours, payConfig) {
+  const workedHours = Number(noOfHours) || 0
+  const regularHours = Math.min(workedHours, payConfig.regularHours)
+  const overtimeHours = Math.floor(Math.max(0, workedHours - payConfig.regularHours))
+  const regularPay = workedHours >= payConfig.regularHours ? payConfig.ratePerDay : (workedHours / payConfig.regularHours) * payConfig.ratePerDay
+  const overtimePay = overtimeHours * payConfig.ratePerHourOvertime
+
+  return {
+    regularHours,
+    overtimeHours,
+    regularPay,
+    overtimePay,
+    total: regularPay + overtimePay
+  }
 }
 
 async function printPaySlip () {
@@ -590,23 +558,30 @@ async function printPaySlip () {
   printingPaySlip.value = true
   try {
     const employeeName = selectedAttendanceName.value
-    const [attendanceSnapshot, cashAdvanceSnapshot] = await Promise.all([
+    const [attendanceSnapshot, cashAdvanceSnapshot, payConfig] = await Promise.all([
       getDocs(query(collection(db, 'attendance'), where('logType', '==', 'Out'))),
-      getDocs(query(collection(db, 'cashAdvances'), where('name', '==', employeeName)))
+      getDocs(query(collection(db, 'cashAdvances'), where('name', '==', employeeName))),
+      getAttendancePayConfig(employeeName)
     ])
+
+    if (!payConfig) {
+      $q.notify({ type: 'warning', message: `No valid attendance assignment or schedule found for ${employeeName}.` })
+      return
+    }
 
     const payslipRows = attendanceSnapshot.docs
       .map((docSnap) => {
         const data = docSnap.data()
         const createdAt = data.createdAt?.toDate?.() || data.createdAt
         const noOfHours = Number(data.noOfHours) || 0
-        const ratePerHour = Number(data.ratePerHour) || 0
+        const pay = calculateAttendancePay(noOfHours, payConfig)
         return {
           name: data.name,
           createdAt,
           noOfHours,
-          ratePerHour,
-          total: noOfHours * ratePerHour
+          ratePerDay: payConfig.ratePerDay,
+          ratePerHourOvertime: payConfig.ratePerHourOvertime,
+          ...pay
         }
       })
       .filter((row) => (
@@ -622,9 +597,7 @@ async function printPaySlip () {
       return
     }
 
-    const noOfHours = payslipRows.reduce((sum, row) => sum + row.noOfHours, 0)
     const grossTotal = payslipRows.reduce((sum, row) => sum + row.total, 0)
-    const ratePerHour = noOfHours > 0 ? grossTotal / noOfHours : 0
     const cashAdvanceTotal = cashAdvanceSnapshot.docs.reduce((sum, docSnap) => {
       const data = docSnap.data()
       const createdAt = data.createdAt?.toDate?.() || data.createdAt
@@ -632,19 +605,6 @@ async function printPaySlip () {
       return sum + (Number(data.amount) || 0)
     }, 0)
     const grandTotal = grossTotal - cashAdvanceTotal
-
-    await addDoc(collection(db, 'payslips'), {
-      name: employeeName,
-      startDate,
-      endDate,
-      noOfHours,
-      ratePerHour,
-      grossTotal,
-      cashAdvanceTotal,
-      grandTotal,
-      createdAt: serverTimestamp(),
-      createdBy: userStore.user?.uid || null
-    })
 
     const tableRows = payslipRows.map((row) => `
       <tr>
@@ -654,7 +614,9 @@ async function printPaySlip () {
           timeStyle: 'short'
         }))}</td>
         <td class="number">${formatNumber(row.noOfHours)}</td>
-        <td class="number">${formatNumber(row.ratePerHour)}</td>
+        <td class="number">${formatNumber(row.ratePerDay)}</td>
+        <td class="number">${formatNumber(row.regularHours)} hours = ${formatNumber(row.regularPay)}</td>
+        <td class="number">${formatNumber(row.overtimeHours)} × ${formatNumber(row.ratePerHourOvertime)} = ${formatNumber(row.overtimePay)}</td>
         <td class="number">${formatNumber(row.total)}</td>
       </tr>
     `).join('')
@@ -688,7 +650,9 @@ async function printPaySlip () {
               <tr>
                 <th>Date</th>
                 <th>No. of Hours</th>
-                <th>Rate Per Hour</th>
+                <th>Rate Per Day</th>
+                <th>Regular Pay</th>
+                <th>Overtime Pay</th>
                 <th>Total</th>
               </tr>
             </thead>
@@ -734,12 +698,11 @@ async function recordEmployeeSalary () {
     const employeeName = selectedAttendanceName.value
     const salaryId = `${encodeURIComponent(employeeName)}-${invoiceStartDate.value}-${invoiceEndDate.value}`
     const salaryRef = doc(db, 'employeeSalaries', salaryId)
-    const [existingSalary, attendanceSnapshot, cashAdvanceSnapshot, salaryAccountSnapshot, cashAccountSnapshot] = await Promise.all([
+    const [existingSalary, attendanceSnapshot, cashAdvanceSnapshot, payConfig] = await Promise.all([
       getDoc(salaryRef),
       getDocs(query(collection(db, 'attendance'), where('logType', '==', 'Out'))),
       getDocs(query(collection(db, 'cashAdvances'), where('name', '==', employeeName))),
-      getDoc(doc(db, 'accounts', '5200')),
-      getDoc(doc(db, 'accounts', '1000'))
+      getAttendancePayConfig(employeeName)
     ])
 
     if (existingSalary.exists()) {
@@ -747,14 +710,8 @@ async function recordEmployeeSalary () {
       return
     }
 
-    const salaryAccount = salaryAccountSnapshot.data()
-    const cashAccount = cashAccountSnapshot.data()
-    if (!salaryAccountSnapshot.exists() || salaryAccount?.type !== 'expense' || salaryAccount.isActive === false) {
-      $q.notify({ type: 'warning', message: 'Active account 5200 - Salaries and Wages Expense is required.' })
-      return
-    }
-    if (!cashAccountSnapshot.exists() || cashAccount?.type !== 'asset' || cashAccount.isActive === false) {
-      $q.notify({ type: 'warning', message: 'Active Cash account 1000 is required.' })
+    if (!payConfig) {
+      $q.notify({ type: 'warning', message: `No valid attendance assignment or schedule found for ${employeeName}.` })
       return
     }
 
@@ -765,8 +722,7 @@ async function recordEmployeeSalary () {
           id: docSnapshot.id,
           name: data.name,
           createdAt: data.createdAt?.toDate?.() || data.createdAt,
-          noOfHours: Number(data.noOfHours) || 0,
-          ratePerHour: Number(data.ratePerHour) || 0
+          noOfHours: Number(data.noOfHours) || 0
         }
       })
       .filter((row) => (
@@ -781,11 +737,23 @@ async function recordEmployeeSalary () {
       return
     }
 
-    const grossTotal = attendanceLogs.reduce((sum, row) => sum + (row.noOfHours * row.ratePerHour), 0)
+    const attendancePay = attendanceLogs.map((row) => calculateAttendancePay(row.noOfHours, payConfig))
+    const regularPayTotal = attendancePay.reduce((sum, pay) => sum + pay.regularPay, 0)
+    const overtimePayTotal = attendancePay.reduce((sum, pay) => sum + pay.overtimePay, 0)
+    const grossTotal = attendancePay.reduce((sum, pay) => sum + pay.total, 0)
     if (grossTotal <= 0) {
       $q.notify({ type: 'warning', message: 'The selected attendance has no payable salary.' })
       return
     }
+
+    const rows = attendanceLogs.map((row, index) => ({
+      attendanceId: row.id,
+      createdAt: row.createdAt,
+      noOfHours: row.noOfHours,
+      ratePerDay: payConfig.ratePerDay,
+      ratePerHourOvertime: payConfig.ratePerHourOvertime,
+      ...attendancePay[index]
+    }))
 
     const cashAdvances = cashAdvanceSnapshot.docs
       .map((docSnapshot) => ({ id: docSnapshot.id, ref: docSnapshot.ref, ...docSnapshot.data() }))
@@ -793,64 +761,39 @@ async function recordEmployeeSalary () {
         const createdAt = cashAdvance.createdAt?.toDate?.() || cashAdvance.createdAt
         return !cashAdvance.employeeSalaryId && createdAt instanceof Date && createdAt >= startDate && createdAt <= endDate
       })
-    const invalidAdvance = cashAdvances.find((cashAdvance) => !cashAdvance.accountId)
-    if (invalidAdvance) {
-      $q.notify({ type: 'warning', message: 'A cash advance in this period has no receivable account. Edit it before recording salary.' })
-      return
-    }
-
     const cashAdvanceTotal = cashAdvances.reduce((sum, cashAdvance) => sum + (Number(cashAdvance.amount) || 0), 0)
-    const netTotal = grossTotal - cashAdvanceTotal
-    if (netTotal < 0) {
+    const grandTotal = grossTotal - cashAdvanceTotal
+    if (grandTotal < 0) {
       $q.notify({ type: 'warning', message: 'Cash advances exceed gross salary. Adjust the period or advances before recording.' })
       return
     }
 
     $q.dialog({
       title: 'Record Employee Salary',
-      message: `Record ${employeeName}'s salary: gross ${formatNumber(grossTotal)}, advances ${formatNumber(cashAdvanceTotal)}, net pay ${formatNumber(netTotal)}?`,
+      message: `Record ${employeeName}'s salary: gross ${formatNumber(grossTotal)}, advances ${formatNumber(cashAdvanceTotal)}, grand total ${formatNumber(grandTotal)}?`,
       cancel: true,
       persistent: true
     }).onOk(async () => {
       recordingEmployeeSalary.value = true
       try {
-        const journalEntryId = `employee-salary-${salaryId}`
-        const advanceCredits = Object.entries(cashAdvances.reduce((totals, cashAdvance) => {
-          totals[cashAdvance.accountId] = (totals[cashAdvance.accountId] || 0) + (Number(cashAdvance.amount) || 0)
-          return totals
-        }, {})).map(([accountId, credit]) => ({ accountId, debit: 0, credit }))
-        const lines = [
-          { accountId: '5200', debit: grossTotal, credit: 0 },
-          ...advanceCredits
-        ]
-        if (netTotal > 0) lines.push({ accountId: '1000', debit: 0, credit: netTotal })
-
         const batch = writeBatch(db)
         batch.set(salaryRef, {
           name: employeeName,
           startDate,
           endDate,
           noOfHours: attendanceLogs.reduce((sum, row) => sum + row.noOfHours, 0),
+          ratePerDay: payConfig.ratePerDay,
+          ratePerHourOvertime: payConfig.ratePerHourOvertime,
+          regularPayTotal,
+          overtimePayTotal,
           grossTotal,
           cashAdvanceTotal,
-          netTotal,
+          grandTotal,
+          rows,
           attendanceIds: attendanceLogs.map((row) => row.id),
           cashAdvanceIds: cashAdvances.map((cashAdvance) => cashAdvance.id),
-          journalEntryId,
           createdAt: serverTimestamp(),
           createdBy: userStore.user?.uid || ''
-        })
-        batch.set(doc(db, 'journalEntries', journalEntryId), {
-          transactionDate: endDate,
-          description: `Employee salary for ${employeeName}`,
-          referenceType: 'employeeSalary',
-          referenceId: salaryId,
-          totalDebit: grossTotal,
-          totalCredit: grossTotal,
-          status: 'draft',
-          createdAt: serverTimestamp(),
-          createdBy: userStore.user?.uid || '',
-          lines
         })
         cashAdvances.forEach((cashAdvance) => {
           batch.update(cashAdvance.ref, {
@@ -859,7 +802,7 @@ async function recordEmployeeSalary () {
           })
         })
         await batch.commit()
-        $q.notify({ type: 'positive', message: 'Employee salary and journal entry recorded.' })
+        $q.notify({ type: 'positive', message: 'Employee salary recorded.' })
       } catch (error) {
         console.error('Could not record employee salary:', error)
         $q.notify({ type: 'negative', message: 'Could not record employee salary.' })
@@ -880,7 +823,6 @@ function openEditAttendance (attendance) {
   editAttendanceForm.value = {
     logType: attendance.logType || 'In',
     noOfHours: Number(attendance.noOfHours) || 0,
-    ratePerHour: Number(attendance.ratePerHour) || 0,
     createdAt: formatManilaDateTimeInput(attendance.createdAtDate)
   }
   editAttendanceDialog.value = true
@@ -913,9 +855,8 @@ async function submitAttendanceEdit () {
   if (!editingAttendanceId.value) return
 
   const noOfHours = Number(editAttendanceForm.value.noOfHours)
-  const ratePerHour = Number(editAttendanceForm.value.ratePerHour)
   const createdAt = buildManilaDateTime(editAttendanceForm.value.createdAt)
-  if (!logTypeOptions.includes(editAttendanceForm.value.logType) || !Number.isFinite(noOfHours) || noOfHours < 0 || !Number.isFinite(ratePerHour) || ratePerHour < 0 || Number.isNaN(createdAt.getTime())) {
+  if (!logTypeOptions.includes(editAttendanceForm.value.logType) || !Number.isFinite(noOfHours) || noOfHours < 0 || Number.isNaN(createdAt.getTime())) {
     $q.notify({ type: 'warning', message: 'Please enter valid attendance details.' })
     return
   }
@@ -925,7 +866,6 @@ async function submitAttendanceEdit () {
     await updateDoc(doc(db, 'attendance', editingAttendanceId.value), {
       logType: editAttendanceForm.value.logType,
       noOfHours,
-      ratePerHour,
       createdAt
     })
     $q.notify({ type: 'positive', message: 'Attendance log updated.' })

@@ -309,16 +309,6 @@ function getPhilippineDayRange () {
   return { startUtc, endUtc }
 }
 
-async function getLatestRatePerHour (attendanceRef, name) {
-  const snapshot = await getDocs(query(attendanceRef, where('name', '==', name)))
-  const latestOutLog = snapshot.docs
-    .map((docSnap) => docSnap.data())
-    .filter((attendance) => attendance.logType === 'Out' && attendance.createdAt?.toDate)
-    .sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime())[0]
-
-  return Number(latestOutLog?.ratePerHour) || 0
-}
-
 // Alternates In/Out per person per Philippine calendar day: first scan of the day is In, then it toggles.
 async function recordAttendance (name, file) {
   try {
@@ -334,7 +324,6 @@ async function recordAttendance (name, file) {
       .sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime())[0]
     let logType = 'In'
     let noOfHours = 0
-    const ratePerHour = await getLatestRatePerHour(attendanceRef, name)
     if (latestLog) {
       logType = latestLog.logType === 'In' ? 'Out' : 'In'
       if (logType === 'Out' && latestLog.createdAt?.toDate) {
@@ -347,7 +336,6 @@ async function recordAttendance (name, file) {
       file,
       logType,
       noOfHours,
-      ratePerHour,
       createdAt: serverTimestamp()
     })
     return logType

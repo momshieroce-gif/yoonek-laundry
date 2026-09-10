@@ -130,9 +130,6 @@
           {{ formatDateTime(props.value) }}
         </q-td>
       </template>
-      <template v-slot:body-cell-accountId="props">
-        <q-td :props="props">{{ getAccountLabel(props.value) }}</q-td>
-      </template>
       <template v-slot:body-cell-branchId="props">
         <q-td :props="props">{{ getBranchLabel(props.value) }}</q-td>
       </template>
@@ -206,22 +203,6 @@
                 <q-icon name="store" color="pink-7" />
               </template>
             </q-select>
-            <q-select
-              v-model="cashAdvanceForm.accountId"
-              outlined
-              dense
-              emit-value
-              map-options
-              label="Advance Receivable Account"
-              color="pink-7"
-              :options="advanceAccountOptions"
-              :loading="loadingAccounts"
-              :rules="[(value) => !!value || 'Advance account is required']"
-            >
-              <template v-slot:prepend>
-                <q-icon name="account_tree" color="pink-7" />
-              </template>
-            </q-select>
             <q-input
               v-model.number="cashAdvanceForm.amount"
               outlined
@@ -257,18 +238,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { db, collection, doc, getDoc, getDocs, writeBatch, serverTimestamp } from '../boot/firebase'
+import { db, collection, doc, getDocs, writeBatch, serverTimestamp } from '../boot/firebase'
 import { useUserStore } from '../stores/user'
 
 const $q = useQuasar()
 const userStore = useUserStore()
 const cashAdvances = ref([])
 const attendanceNames = ref([])
-const accounts = ref([])
 const branches = ref([])
 const loadingAdvances = ref(false)
 const loadingNames = ref(false)
-const loadingAccounts = ref(false)
 const loadingBranches = ref(false)
 const savingAdvance = ref(false)
 const createDialog = ref(false)
@@ -280,7 +259,6 @@ const endDate = ref('')
 const cashAdvanceForm = ref({
   name: null,
   branchId: '',
-  accountId: '',
   amount: null
 })
 
@@ -288,7 +266,6 @@ const columns = [
   { name: 'name', label: 'Name', field: 'name', align: 'left', sortable: true },
   { name: 'amount', label: 'Amount', field: 'amount', align: 'right', sortable: true },
   { name: 'branchId', label: 'Branch', field: 'branchId', align: 'left', sortable: true },
-  { name: 'accountId', label: 'Advance Account', field: 'accountId', align: 'left' },
   { name: 'createdAt', label: 'Date & Time', field: 'createdAt', align: 'left', sortable: true },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'center' }
 ]
@@ -300,10 +277,6 @@ const nameOptions = computed(() => {
   ].filter(Boolean)
   return [...new Set(names)].sort((first, second) => first.localeCompare(second))
 })
-
-const advanceAccountOptions = computed(() => accounts.value
-  .filter((account) => account.type === 'asset' && account.id !== '1000' && account.isActive !== false)
-  .map((account) => ({ label: `${account.code} - ${account.name}`, value: account.id })))
 
 const branchOptions = computed(() => branches.value.map((branch) => ({
   label: branch.name,
@@ -356,12 +329,6 @@ function formatDateTime (timestamp) {
   })
 }
 
-function getAccountLabel (accountId) {
-  if (!accountId) return '—'
-  const account = accounts.value.find((item) => item.id === accountId)
-  return account ? `${account.code} - ${account.name}` : accountId
-}
-
 function getBranchLabel (branchId) {
   if (!branchId) return 'Unassigned'
   return branches.value.find((branch) => branch.id === branchId)?.name || branchId
@@ -379,21 +346,6 @@ async function loadNames () {
     $q.notify({ type: 'negative', message: 'Could not load employee names.' })
   } finally {
     loadingNames.value = false
-  }
-}
-
-async function loadAccounts () {
-  loadingAccounts.value = true
-  try {
-    const snapshot = await getDocs(collection(db, 'accounts'))
-    accounts.value = snapshot.docs
-      .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
-      .sort((first, second) => first.code.localeCompare(second.code, undefined, { numeric: true }))
-  } catch (error) {
-    console.error('Could not load accounts:', error)
-    $q.notify({ type: 'negative', message: 'Could not load cash advance accounts.' })
-  } finally {
-    loadingAccounts.value = false
   }
 }
 
@@ -422,8 +374,6 @@ async function loadCashAdvances () {
         name: docSnapshot.data().name || 'Unknown',
         amount: Number(docSnapshot.data().amount) || 0,
         branchId: docSnapshot.data().branchId || '',
-        accountId: docSnapshot.data().accountId || '',
-        journalEntryId: docSnapshot.data().journalEntryId || '',
         employeeSalaryId: docSnapshot.data().employeeSalaryId || '',
         createdBy: docSnapshot.data().createdBy || '',
         createdAt: docSnapshot.data().createdAt || null
@@ -446,7 +396,6 @@ function openCreateDialog () {
   cashAdvanceForm.value = {
     name: selectedName.value || null,
     branchId: selectedBranch.value || branchOptions.value[0]?.value || '',
-    accountId: advanceAccountOptions.value.find((option) => option.value === '1200')?.value || advanceAccountOptions.value[0]?.value || '',
     amount: null
   }
   createDialog.value = true
@@ -461,7 +410,6 @@ function openEditDialog (cashAdvance) {
   cashAdvanceForm.value = {
     name: cashAdvance.name,
     branchId: cashAdvance.branchId || selectedBranch.value || branchOptions.value[0]?.value || '',
-    accountId: cashAdvance.accountId || advanceAccountOptions.value.find((option) => option.value === '1200')?.value || advanceAccountOptions.value[0]?.value || '',
     amount: cashAdvance.amount
   }
   createDialog.value = true
@@ -471,15 +419,8 @@ async function saveCashAdvance () {
   const name = cashAdvanceForm.value.name
   const amount = Number(cashAdvanceForm.value.amount)
   const branchId = cashAdvanceForm.value.branchId
-  const accountId = cashAdvanceForm.value.accountId
   const branch = branches.value.find((item) => item.id === branchId)
-  const advanceAccount = accounts.value.find((account) => account.id === accountId)
-  const cashAccount = accounts.value.find((account) => account.id === '1000')
-  if (
-    !name || !branch || !Number.isFinite(amount) || amount <= 0 ||
-    !advanceAccount || advanceAccount.type !== 'asset' || advanceAccount.isActive === false ||
-    !cashAccount || cashAccount.type !== 'asset' || cashAccount.isActive === false
-  ) {
+  if (!name || !branch || !Number.isFinite(amount) || amount <= 0) {
     $q.notify({ type: 'warning', message: 'Please enter valid cash advance details.' })
     return
   }
@@ -492,15 +433,6 @@ async function saveCashAdvance () {
     const advanceRef = editingAdvanceId.value
       ? doc(db, 'cashAdvances', editingAdvanceId.value)
       : doc(collection(db, 'cashAdvances'))
-    const journalEntryId = existingAdvance?.journalEntryId || `cash-advance-${advanceRef.id}`
-    const journalEntryRef = doc(db, 'journalEntries', journalEntryId)
-    if (editingAdvanceId.value) {
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'This cash advance cannot be edited because its journal entry is no longer a draft.' })
-        return
-      }
-    }
     const createdBy = existingAdvance?.createdBy || userStore.user?.uid || ''
     const transactionDate = existingAdvance?.createdAt || serverTimestamp()
     const batch = writeBatch(db)
@@ -509,44 +441,20 @@ async function saveCashAdvance () {
       batch.update(advanceRef, {
         name,
         branchId,
-        accountId,
         amount,
-        journalEntryId,
         updatedAt: serverTimestamp()
       })
     } else {
       batch.set(advanceRef, {
         name,
         branchId,
-        accountId,
         amount,
-        journalEntryId,
         createdBy,
         createdAt: transactionDate,
         updatedAt: serverTimestamp()
       })
     }
 
-    const journalEntryData = {
-      description: `Cash advance for ${name}`,
-      referenceType: 'cashAdvance',
-      referenceId: advanceRef.id,
-      totalDebit: amount,
-      totalCredit: amount,
-      status: 'draft',
-      branchId,
-      updatedAt: serverTimestamp(),
-      lines: [
-        { accountId, debit: amount, credit: 0 },
-        { accountId: '1000', debit: 0, credit: amount }
-      ]
-    }
-    if (!existingAdvance?.journalEntryId) {
-      journalEntryData.transactionDate = transactionDate
-      journalEntryData.createdAt = transactionDate
-      journalEntryData.createdBy = createdBy
-    }
-    batch.set(journalEntryRef, journalEntryData, { merge: true })
     await batch.commit()
 
     createDialog.value = false
@@ -575,15 +483,8 @@ function confirmDelete (cashAdvance) {
     persistent: true
   }).onOk(async () => {
     try {
-      const journalEntryRef = doc(db, 'journalEntries', cashAdvance.journalEntryId || `cash-advance-${cashAdvance.id}`)
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'This cash advance cannot be deleted because its journal entry is no longer a draft.' })
-        return
-      }
       const batch = writeBatch(db)
       batch.delete(doc(db, 'cashAdvances', cashAdvance.id))
-      batch.delete(journalEntryRef)
       await batch.commit()
       $q.notify({ type: 'positive', message: 'Cash advance deleted.' })
       await loadCashAdvances()
@@ -603,7 +504,6 @@ function clearFilters () {
 
 onMounted(() => {
   loadNames()
-  loadAccounts()
   loadBranches()
   loadCashAdvances()
 })

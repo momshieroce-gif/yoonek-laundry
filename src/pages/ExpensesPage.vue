@@ -122,22 +122,6 @@
               autofocus
               :rules="[(value) => !!value || 'Expense name is required']"
             />
-            <q-select
-              v-model="expenseForm.accountId"
-              outlined
-              dense
-              emit-value
-              map-options
-              label="Expense Account"
-              color="pink-7"
-              :options="expenseAccountOptions"
-              :loading="loadingAccounts"
-              :rules="[(value) => !!value || 'Expense account is required']"
-            >
-              <template v-slot:prepend>
-                <q-icon name="account_tree" color="pink-7" />
-              </template>
-            </q-select>
             <q-input
               v-model.number="expenseForm.amount"
               outlined
@@ -180,28 +164,23 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { db, collection, doc, getDoc, getDocs, writeBatch, serverTimestamp } from '../boot/firebase'
+import { db, collection, doc, getDocs, writeBatch, serverTimestamp } from '../boot/firebase'
 import { useUserStore } from '../stores/user'
 
 const $q = useQuasar()
 const userStore = useUserStore()
 
 const branches = ref([])
-const accounts = ref([])
 const expenses = ref([])
 const selectedBranch = ref('')
 const startDate = ref('')
 const endDate = ref('')
 const loadingBranches = ref(false)
-const loadingAccounts = ref(false)
 const loadingExpenses = ref(false)
 const savingExpense = ref(false)
 const createDialog = ref(false)
 const editingExpenseId = ref(null)
-const editingExpenseCreatedAt = ref(null)
-const editingExpenseUserId = ref('')
-const editingExpenseBranchId = ref('')
-const expenseForm = ref({ name: '', accountId: '', amount: null, notes: '' })
+const expenseForm = ref({ name: '', amount: null, notes: '' })
 
 const columns = [
   { name: 'name', label: 'Expense', field: 'name', align: 'left', sortable: true },
@@ -214,10 +193,6 @@ const branchOptions = computed(() => branches.value.map((branch) => ({
   label: branch.name,
   value: branch.id
 })))
-
-const expenseAccountOptions = computed(() => accounts.value
-  .filter((account) => account.type === 'expense' && account.isActive !== false)
-  .map((account) => ({ label: `${account.code} - ${account.name}`, value: account.id })))
 
 const selectedBranchName = computed(() => (
   branches.value.find((branch) => branch.id === selectedBranch.value)?.name || 'selected branch'
@@ -285,21 +260,6 @@ async function loadBranches () {
   }
 }
 
-async function loadAccounts () {
-  loadingAccounts.value = true
-  try {
-    const snapshot = await getDocs(collection(db, 'accounts'))
-    accounts.value = snapshot.docs
-      .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
-      .sort((first, second) => first.code.localeCompare(second.code, undefined, { numeric: true }))
-  } catch (error) {
-    console.error('Could not load accounts:', error)
-    $q.notify({ type: 'negative', message: 'Could not load expense accounts.' })
-  } finally {
-    loadingAccounts.value = false
-  }
-}
-
 async function loadExpenses () {
   loadingExpenses.value = true
   try {
@@ -311,7 +271,6 @@ async function loadExpenses () {
           id: docSnapshot.id,
           name: data.name || 'Unnamed expense',
           amount: Number(data.amount) || 0,
-          accountId: data.accountId || '',
           notes: data.notes || '',
           branchId: data.branchId || '',
           userId: data.userId || '',
@@ -329,12 +288,8 @@ async function loadExpenses () {
 
 function openCreateDialog () {
   editingExpenseId.value = null
-  editingExpenseCreatedAt.value = null
-  editingExpenseUserId.value = ''
-  editingExpenseBranchId.value = ''
   expenseForm.value = {
     name: '',
-    accountId: expenseAccountOptions.value[0]?.value || '',
     amount: null,
     notes: ''
   }
@@ -343,12 +298,8 @@ function openCreateDialog () {
 
 function openEditDialog (expense) {
   editingExpenseId.value = expense.id
-  editingExpenseCreatedAt.value = expense.createdAt
-  editingExpenseUserId.value = expense.userId
-  editingExpenseBranchId.value = expense.branchId
   expenseForm.value = {
     name: expense.name,
-    accountId: expense.accountId || expenseAccountOptions.value[0]?.value || '',
     amount: expense.amount,
     notes: expense.notes
   }
@@ -358,11 +309,10 @@ function openEditDialog (expense) {
 async function saveExpense () {
   const name = expenseForm.value.name
   const amount = Number(expenseForm.value.amount)
-  const accountId = expenseForm.value.accountId
   const userId = userStore.user?.uid
   const branchId = selectedBranch.value
 
-  if (!name || !accountId || !Number.isFinite(amount) || amount <= 0 || !userId || !branchId) {
+  if (!name || !Number.isFinite(amount) || amount <= 0 || !userId || !branchId) {
     $q.notify({ type: 'warning', message: 'Please complete the expense details.' })
     return
   }
@@ -372,56 +322,24 @@ async function saveExpense () {
     const expenseRef = editingExpenseId.value
       ? doc(db, 'expenses', editingExpenseId.value)
       : doc(collection(db, 'expenses'))
-    const journalEntryRef = doc(db, 'journalEntries', expenseRef.id)
-    if (editingExpenseId.value) {
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'This expense cannot be edited because its journal entry is no longer a draft.' })
-        return
-      }
-    }
     const batch = writeBatch(db)
-    const transactionDate = editingExpenseCreatedAt.value || serverTimestamp()
-    const createdBy = editingExpenseUserId.value || userId
-    const journalBranchId = editingExpenseBranchId.value || branchId
 
     if (editingExpenseId.value) {
       batch.update(expenseRef, {
         name,
-        accountId,
         amount,
-        notes: expenseForm.value.notes || '',
-        journalEntryId: journalEntryRef.id
+        notes: expenseForm.value.notes || ''
       })
     } else {
       batch.set(expenseRef, {
         name,
-        accountId,
         amount,
         createdAt: serverTimestamp(),
         userId,
         branchId,
-        notes: expenseForm.value.notes || '',
-        journalEntryId: journalEntryRef.id
+        notes: expenseForm.value.notes || ''
       })
     }
-
-    batch.set(journalEntryRef, {
-      transactionDate,
-      description: `Paid ${name}`,
-      referenceType: 'expense',
-      referenceId: expenseRef.id,
-      totalDebit: amount,
-      totalCredit: amount,
-      status: 'draft',
-      createdAt: transactionDate,
-      createdBy,
-      branchId: journalBranchId,
-      lines: [
-        { accountId, debit: amount, credit: 0 },
-        { accountId: '1000', debit: 0, credit: amount }
-      ]
-    }, { merge: true })
 
     await batch.commit()
     createDialog.value = false
@@ -446,15 +364,8 @@ function confirmDelete (expense) {
     persistent: true
   }).onOk(async () => {
     try {
-      const journalEntryRef = doc(db, 'journalEntries', expense.id)
-      const journalSnapshot = await getDoc(journalEntryRef)
-      if (journalSnapshot.exists() && journalSnapshot.data().status !== 'draft') {
-        $q.notify({ type: 'warning', message: 'This expense cannot be deleted because its journal entry is no longer a draft.' })
-        return
-      }
       const batch = writeBatch(db)
       batch.delete(doc(db, 'expenses', expense.id))
-      batch.delete(journalEntryRef)
       await batch.commit()
       $q.notify({ type: 'positive', message: 'Expense deleted.' })
       await loadExpenses()
@@ -471,7 +382,7 @@ function clearDateFilters () {
 }
 
 onMounted(async () => {
-  await Promise.all([loadBranches(), loadAccounts(), loadExpenses()])
+  await Promise.all([loadBranches(), loadExpenses()])
 })
 </script>
 
