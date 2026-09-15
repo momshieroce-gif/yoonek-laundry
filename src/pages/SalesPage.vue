@@ -1363,6 +1363,11 @@ async function printSale(sale) {
             white-space: nowrap;
           }
           .spacer { height: 1.5mm; }
+          .disclaimer {
+            margin-top: 12px;
+            font-size: 9px;
+            text-align: center;
+          }
           img { max-width: 100%; height: auto; }
         </style>
       </head>
@@ -1387,7 +1392,16 @@ async function printSale(sale) {
         <div class="row bold"><span>Total:</span><span>${formatCurrency(Number(sale.total !== undefined ? sale.total : (Number(sale.amount || 0) + itemsTotal)))}</span></div>
         <div class="line"></div>
         <div class="row"><span>Status:</span><span>${sale.status}</span></div>
-        <div class="center">Thank you!</div>
+        <div class="center disclaimer">
+          UNCOUNTED LOAD: Customer agreed not to count items at drop-off.
+          The shop is not liable for any items reported missing from uncounted loads. 
+
+          Please present this stub to claim your laundry. 
+          Unclaimed items after 60 days may be disposed of. 
+          Not liable for shrinkage, color loss/transfer or items left in pockets.
+        </div>
+        <br />
+        <div class="center bold">Thank you!</div>
       </body>
     </html>
   `
@@ -2087,4 +2101,6 @@ onMounted(() => {
 .update-btn:hover {
   box-shadow: 0 14px 36px rgba(25, 118, 210, 0.45);
 }
+
+
 </style>
