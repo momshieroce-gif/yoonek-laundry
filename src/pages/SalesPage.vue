@@ -590,6 +590,24 @@
               <div v-else class="report-empty">No expenses</div>
               <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(reportData.expenseTotal) }}</strong></div>
             </section>
+
+            <section class="report-panel report-panel--deduction">
+              <div class="report-panel__header">
+                <div>
+                  <div class="report-panel__eyebrow">Deduction</div>
+                  <h2>Gcash / Bank Transfer</h2>
+                </div>
+                <q-icon name="account_balance" size="26px" />
+              </div>
+              <div v-if="reportData.electronicPayments.length" class="report-list">
+                <div v-for="entry in reportData.electronicPayments" :key="entry.id" class="report-list__row">
+                  <span>{{ entry.label }}</span>
+                  <strong>{{ formatCurrency(entry.amount) }}</strong>
+                </div>
+              </div>
+              <div v-else class="report-empty">No Gcash or Bank Transfer payments</div>
+              <div class="report-panel__total"><span>Total</span><strong>{{ formatCurrency(reportData.electronicPaymentTotal) }}</strong></div>
+            </section>
           </div>
 
           <section class="income-summary">
@@ -653,12 +671,14 @@ const reportData = ref({
   unpaidSales: [],
   cashAdvances: [],
   expenses: [],
+  electronicPayments: [],
   serviceTotal: 0,
   itemTotal: 0,
   paymentTotal: 0,
   unpaidSalesTotal: 0,
   cashAdvanceTotal: 0,
   expenseTotal: 0,
+  electronicPaymentTotal: 0,
   deductionTotal: 0,
   totalIncome: 0
 })
@@ -1481,6 +1501,7 @@ function printReport() {
           ${reportSection('Unpaid Sales', reportData.value.unpaidSales, reportData.value.unpaidSalesTotal)}
           ${reportSection('Cash Advances', reportData.value.cashAdvances, reportData.value.cashAdvanceTotal)}
           ${reportSection('Expenses', reportData.value.expenses, reportData.value.expenseTotal)}
+          ${reportSection('Gcash / Bank Transfer', reportData.value.electronicPayments, reportData.value.electronicPaymentTotal)}
         </div>
         <div class="summary">
           <div>Total Income<small>Payments ${formatCurrency(reportData.value.paymentTotal)} - deductions ${formatCurrency(reportData.value.deductionTotal)}</small></div>
@@ -1633,7 +1654,19 @@ async function pageReport() {
     const unpaidSalesTotal = unpaidSales.reduce((sum, entry) => sum + entry.amount, 0)
     const cashAdvanceTotal = cashAdvances.reduce((sum, entry) => sum + entry.amount, 0)
     const expenseTotal = expenses.reduce((sum, entry) => sum + entry.amount, 0)
-    const deductionTotal = unpaidSalesTotal + cashAdvanceTotal + expenseTotal
+
+    // Gcash and Bank Transfer payments are deducted since they are not physical cash on hand
+    const electronicPaymentTypes = payments.filter(payment => payment.type !== 'Cash')
+    const electronicPayments = electronicPaymentTypes.flatMap(payment =>
+      payment.entries.map(entry => ({
+        ...entry,
+        id: `${entry.id}-${payment.type}`,
+        label: `${entry.label} (${payment.type})`
+      }))
+    )
+    const electronicPaymentTotal = electronicPaymentTypes.reduce((sum, payment) => sum + payment.total, 0)
+
+    const deductionTotal = unpaidSalesTotal + cashAdvanceTotal + expenseTotal + electronicPaymentTotal
 
     reportData.value = {
       services: Object.values(serviceGroups),
@@ -1642,12 +1675,14 @@ async function pageReport() {
       unpaidSales,
       cashAdvances,
       expenses,
+      electronicPayments,
       serviceTotal,
       itemTotal,
       paymentTotal,
       unpaidSalesTotal,
       cashAdvanceTotal,
       expenseTotal,
+      electronicPaymentTotal,
       deductionTotal,
       totalIncome: paymentTotal - deductionTotal
     }
