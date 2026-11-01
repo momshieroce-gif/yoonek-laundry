@@ -110,7 +110,8 @@
         row-key="id"
         flat
         :loading="loading"
-        :pagination="{ rowsPerPage: 10 }"
+        :pagination="{ rowsPerPage: 0 }"
+        hide-pagination
       >
         <template v-slot:body-cell-amount="props">
           <q-td :props="props" class="text-weight-bold">
@@ -164,6 +165,15 @@
           </q-td>
         </template>
       </q-table>
+      <div v-if="hasMoreSales" class="row justify-center q-pa-md">
+        <q-btn
+          outline
+          no-caps
+          label="Load More"
+          :loading="loading"
+          @click="loadMoreSales"
+        />
+      </div>
     </q-card>
 
     <!-- Add/Edit Dialog -->
@@ -629,7 +639,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
+import { db, collection, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy, limit, startAfter } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -752,35 +762,15 @@ function formatSaleDateTime(date) {
   })
 }
 
-const filteredSales = computed(() => {
-  let result = sales.value
+function matchesSearch(sale) {
+  if (!searchText.value) return true
+  const search = searchText.value.toLowerCase()
+  const services = Array.isArray(sale.service) ? sale.service : (sale.service ? [sale.service] : [])
+  return String(sale.customerName || '').toLowerCase().includes(search) ||
+    services.some(s => String(getServiceName(s) || '').toLowerCase().includes(search))
+}
 
-  if (searchText.value) {
-    const search = searchText.value.toLowerCase()
-    result = result.filter(sale => 
-      sale.customerName.toLowerCase().includes(search) ||
-      sale.service.toLowerCase().includes(search)
-    )
-  }
-
-  if (selectedBranch.value) {
-    result = result.filter(sale => sale.branchId === selectedBranch.value)
-  }
-
-  const startBoundary = buildFilterDateTime(startDate.value, startTime.value)
-  if (startBoundary) {
-    const startTs = startBoundary.getTime()
-    result = result.filter(sale => Number(sale.createdAtTs || 0) >= startTs)
-  }
-
-  const endBoundary = buildFilterDateTime(endDate.value, endTime.value, true)
-  if (endBoundary) {
-    const endTs = endBoundary.getTime()
-    result = result.filter(sale => Number(sale.createdAtTs || 0) <= endTs)
-  }
-
-  return result
-})
+const filteredSales = computed(() => sales.value.filter(matchesSearch))
 
 async function loadBranches() {
   try {
@@ -809,34 +799,58 @@ async function loadInventory() {
   }
 }
 
-async function loadSales() {
+const PAGE_SIZE = 10
+const lastSaleDoc = ref(null)
+const hasMoreSales = ref(false)
+
+function buildSalesConstraints() {
+  const constraints = []
+  if (selectedBranch.value) {
+    constraints.push(where('branchId', '==', selectedBranch.value))
+  }
+
+  const start = buildFilterDateTime(startDate.value, startTime.value)
+  if (start) {
+    constraints.push(where('createdAt', '>=', start))
+  }
+
+  const end = buildFilterDateTime(endDate.value, endTime.value, true)
+  if (end) {
+    constraints.push(where('createdAt', '<=', end))
+  }
+
+  constraints.push(orderBy('createdAt', 'desc'))
+  return constraints
+}
+
+function mapSaleDoc(snap) {
+  const data = snap.data()
+  const createdAtDate = data.createdAt?.toDate()
+  return {
+    id: snap.id,
+    ...data,
+    date: createdAtDate?.toLocaleDateString('en-CA') || 'N/A',
+    dateTime: formatSaleDateTime(createdAtDate),
+    createdAtTs: createdAtDate?.getTime() || 0
+  }
+}
+
+// Loads one page (10 docs). Reset starts over; otherwise appends the next page.
+async function loadSales(reset = true) {
+  if (loading.value && !reset) return
   loading.value = true
   try {
-    const constraints = [orderBy('createdAt', 'desc')]
-
-    const start = buildFilterDateTime(startDate.value, startTime.value)
-    if (start) {
-      constraints.push(where('createdAt', '>=', start))
+    const constraints = buildSalesConstraints()
+    if (!reset && lastSaleDoc.value) {
+      constraints.push(startAfter(lastSaleDoc.value))
     }
+    constraints.push(limit(PAGE_SIZE))
 
-    const end = buildFilterDateTime(endDate.value, endTime.value, true)
-    if (end) {
-      constraints.push(where('createdAt', '<=', end))
-    }
-
-    const q = query(collection(db, 'sales'), ...constraints)
-
-    const snapshot = await getDocs(q)
-    sales.value = snapshot.docs.map(doc => {
-      const createdAtDate = doc.data().createdAt?.toDate()
-      return {
-        id: doc.id,
-        ...doc.data(),
-        date: createdAtDate?.toLocaleDateString('en-CA') || 'N/A',
-        dateTime: formatSaleDateTime(createdAtDate),
-        createdAtTs: createdAtDate?.getTime() || 0
-      }
-    })
+    const snapshot = await getDocs(query(collection(db, 'sales'), ...constraints))
+    const page = snapshot.docs.map(mapSaleDoc)
+    sales.value = reset ? page : [...sales.value, ...page]
+    lastSaleDoc.value = snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : (reset ? null : lastSaleDoc.value)
+    hasMoreSales.value = snapshot.docs.length === PAGE_SIZE
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -847,7 +861,11 @@ async function loadSales() {
   }
 }
 
-watch([startDate, endDate, startTime, endTime], () => {
+function loadMoreSales() {
+  return loadSales(false)
+}
+
+watch([startDate, endDate, startTime, endTime, selectedBranch], () => {
   loadSales()
 })
 
@@ -1221,10 +1239,6 @@ async function handleSaveSale() {
     showAddDialog.value = false
     editingSale.value = null
     resetForm()
-
-    if (result === 'synced') {
-      await loadSales()
-    }
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -1254,7 +1268,7 @@ function deleteSale(id) {
         type: 'positive',
         message: 'Sale deleted successfully!'
       })
-      await loadSales()
+      sales.value = sales.value.filter(sale => sale.id !== id)
     } catch (error) {
       $q.notify({
         type: 'negative',
@@ -1538,10 +1552,22 @@ async function pageReport() {
   const periodEnd = endDate.value ? `${endDate.value} ${endTime.value || '23:59'}` : 'Present'
   reportPeriod.value = `${periodStart} to ${periodEnd}`
 
+  // The table only holds the loaded page, so the report fetches the full matching set once, on demand.
+  let reportSales = []
+  try {
+    const salesSnapshot = await getDocs(query(collection(db, 'sales'), ...buildSalesConstraints()))
+    reportSales = salesSnapshot.docs.map(mapSaleDoc).filter(matchesSearch)
+  } catch (error) {
+    console.error('Could not load sales for report:', error)
+    $q.notify({ type: 'negative', message: 'Could not load the report sales.' })
+    reportLoading.value = false
+    return
+  }
+
   const serviceGroups = {}
   let serviceTotal = 0
 
-  filteredSales.value.forEach(sale => {
+  reportSales.forEach(sale => {
     const services = Array.isArray(sale.service) ? sale.service : (sale.service ? [sale.service] : [])
     services.forEach((service, index) => {
       const name = getServiceName(service) || 'Unknown Service'
@@ -1562,7 +1588,7 @@ async function pageReport() {
   const itemGroups = {}
   let itemTotal = 0
 
-  filteredSales.value.forEach(sale => {
+  reportSales.forEach(sale => {
     const items = Array.isArray(sale.items) ? sale.items : []
     items.forEach(item => {
       const name = item?.name || 'Unknown Item'
@@ -1583,7 +1609,7 @@ async function pageReport() {
   const paymentBuckets = Object.fromEntries(paymentTypes.map(payment => [payment.type, []]))
   const unpaidSales = []
 
-  filteredSales.value.forEach(sale => {
+  reportSales.forEach(sale => {
     const total = Number(sale.total ?? sale.amount ?? 0)
     if (String(sale.paymentStatus || '').toLowerCase() === 'unpaid') {
       unpaidSales.push({
@@ -1620,12 +1646,15 @@ async function pageReport() {
   })
 
   try {
-    const [cashAdvanceSnapshot, expenseSnapshot] = await Promise.all([
-      getDocs(collection(db, 'cashAdvances')),
-      getDocs(collection(db, 'expenses'))
-    ])
     const startBoundary = buildFilterDateTime(startDate.value, startTime.value)
     const endBoundary = buildFilterDateTime(endDate.value, endTime.value, true)
+    const dateConstraints = []
+    if (startBoundary) dateConstraints.push(where('createdAt', '>=', startBoundary))
+    if (endBoundary) dateConstraints.push(where('createdAt', '<=', endBoundary))
+    const [cashAdvanceSnapshot, expenseSnapshot] = await Promise.all([
+      getDocs(query(collection(db, 'cashAdvances'), ...dateConstraints)),
+      getDocs(query(collection(db, 'expenses'), ...dateConstraints))
+    ])
     const matchesReportFilters = data => {
       if (selectedBranch.value && data.branchId !== selectedBranch.value) return false
       const createdAt = data.createdAt?.toDate?.() || data.createdAt
