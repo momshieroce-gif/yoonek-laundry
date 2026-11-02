@@ -110,7 +110,8 @@
         row-key="id"
         flat
         :loading="loading"
-        :pagination="{ rowsPerPage: 10 }"
+        :pagination="{ rowsPerPage: 0 }"
+        hide-pagination
       >
         <template v-slot:body-cell-amount="props">
           <q-td :props="props" class="text-weight-bold">
@@ -164,6 +165,15 @@
           </q-td>
         </template>
       </q-table>
+      <div v-if="hasMoreSales" class="row justify-center q-pa-md">
+        <q-btn
+          outline
+          no-caps
+          label="Load More"
+          :loading="loading"
+          @click="loadMoreSales"
+        />
+      </div>
     </q-card>
 
     <!-- Add/Edit Dialog -->
@@ -629,7 +639,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy } from '../boot/firebase'
+import { db, collection, getDocs, deleteDoc, doc, writeBatch, serverTimestamp, query, where, orderBy, limit, startAfter } from '../boot/firebase'
 import { formatCurrency } from '../utils/currency'
 import { useQuasar } from 'quasar'
 
@@ -658,13 +668,19 @@ const reportLoading = ref(false)
 const editingSale = ref(null)
 const searchText = ref('')
 const selectedBranch = ref('')
-const startDate = ref('')
-const endDate = ref('')
+const now = new Date()
+const currentDate = [
+  now.getFullYear(),
+  String(now.getMonth() + 1).padStart(2, '0'),
+  String(now.getDate()).padStart(2, '0')
+].join('-')
+const startDate = ref(currentDate)
+const endDate = ref(currentDate)
 const startTime = ref('')
 const endTime = ref('')
 const reportBranch = ref('All Branches')
 const reportPeriod = ref('All dates')
-const reportData = ref({
+const createEmptyReportData = () => ({
   services: [],
   items: [],
   payments: [],
@@ -682,6 +698,7 @@ const reportData = ref({
   deductionTotal: 0,
   totalIncome: 0
 })
+const reportData = ref(createEmptyReportData())
 
 const minDate = computed(() => {
   if (userStore.isAdmin) return undefined
@@ -752,35 +769,15 @@ function formatSaleDateTime(date) {
   })
 }
 
-const filteredSales = computed(() => {
-  let result = sales.value
+function matchesSearch(sale) {
+  if (!searchText.value) return true
+  const search = searchText.value.toLowerCase()
+  const services = Array.isArray(sale.service) ? sale.service : (sale.service ? [sale.service] : [])
+  return String(sale.customerName || '').toLowerCase().includes(search) ||
+    services.some(s => String(getServiceName(s) || '').toLowerCase().includes(search))
+}
 
-  if (searchText.value) {
-    const search = searchText.value.toLowerCase()
-    result = result.filter(sale => 
-      sale.customerName.toLowerCase().includes(search) ||
-      sale.service.toLowerCase().includes(search)
-    )
-  }
-
-  if (selectedBranch.value) {
-    result = result.filter(sale => sale.branchId === selectedBranch.value)
-  }
-
-  const startBoundary = buildFilterDateTime(startDate.value, startTime.value)
-  if (startBoundary) {
-    const startTs = startBoundary.getTime()
-    result = result.filter(sale => Number(sale.createdAtTs || 0) >= startTs)
-  }
-
-  const endBoundary = buildFilterDateTime(endDate.value, endTime.value, true)
-  if (endBoundary) {
-    const endTs = endBoundary.getTime()
-    result = result.filter(sale => Number(sale.createdAtTs || 0) <= endTs)
-  }
-
-  return result
-})
+const filteredSales = computed(() => sales.value.filter(matchesSearch))
 
 async function loadBranches() {
   try {
@@ -809,34 +806,58 @@ async function loadInventory() {
   }
 }
 
-async function loadSales() {
+const PAGE_SIZE = 10
+const lastSaleDoc = ref(null)
+const hasMoreSales = ref(false)
+
+function buildSalesConstraints() {
+  const constraints = []
+  if (selectedBranch.value) {
+    constraints.push(where('branchId', '==', selectedBranch.value))
+  }
+
+  const start = buildFilterDateTime(startDate.value, startTime.value)
+  if (start) {
+    constraints.push(where('createdAt', '>=', start))
+  }
+
+  const end = buildFilterDateTime(endDate.value, endTime.value, true)
+  if (end) {
+    constraints.push(where('createdAt', '<=', end))
+  }
+
+  constraints.push(orderBy('createdAt', 'desc'))
+  return constraints
+}
+
+function mapSaleDoc(snap) {
+  const data = snap.data()
+  const createdAtDate = data.createdAt?.toDate()
+  return {
+    id: snap.id,
+    ...data,
+    date: createdAtDate?.toLocaleDateString('en-CA') || 'N/A',
+    dateTime: formatSaleDateTime(createdAtDate),
+    createdAtTs: createdAtDate?.getTime() || 0
+  }
+}
+
+// Loads one page (10 docs). Reset starts over; otherwise appends the next page.
+async function loadSales(reset = true) {
+  if (loading.value && !reset) return
   loading.value = true
   try {
-    const constraints = [orderBy('createdAt', 'desc')]
-
-    const start = buildFilterDateTime(startDate.value, startTime.value)
-    if (start) {
-      constraints.push(where('createdAt', '>=', start))
+    const constraints = buildSalesConstraints()
+    if (!reset && lastSaleDoc.value) {
+      constraints.push(startAfter(lastSaleDoc.value))
     }
+    constraints.push(limit(PAGE_SIZE))
 
-    const end = buildFilterDateTime(endDate.value, endTime.value, true)
-    if (end) {
-      constraints.push(where('createdAt', '<=', end))
-    }
-
-    const q = query(collection(db, 'sales'), ...constraints)
-
-    const snapshot = await getDocs(q)
-    sales.value = snapshot.docs.map(doc => {
-      const createdAtDate = doc.data().createdAt?.toDate()
-      return {
-        id: doc.id,
-        ...doc.data(),
-        date: createdAtDate?.toLocaleDateString('en-CA') || 'N/A',
-        dateTime: formatSaleDateTime(createdAtDate),
-        createdAtTs: createdAtDate?.getTime() || 0
-      }
-    })
+    const snapshot = await getDocs(query(collection(db, 'sales'), ...constraints))
+    const page = snapshot.docs.map(mapSaleDoc)
+    sales.value = reset ? page : [...sales.value, ...page]
+    lastSaleDoc.value = snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : (reset ? null : lastSaleDoc.value)
+    hasMoreSales.value = snapshot.docs.length === PAGE_SIZE
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -847,7 +868,11 @@ async function loadSales() {
   }
 }
 
-watch([startDate, endDate, startTime, endTime], () => {
+function loadMoreSales() {
+  return loadSales(false)
+}
+
+watch([startDate, endDate, startTime, endTime, selectedBranch], () => {
   loadSales()
 })
 
@@ -1221,10 +1246,6 @@ async function handleSaveSale() {
     showAddDialog.value = false
     editingSale.value = null
     resetForm()
-
-    if (result === 'synced') {
-      await loadSales()
-    }
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -1254,7 +1275,7 @@ function deleteSale(id) {
         type: 'positive',
         message: 'Sale deleted successfully!'
       })
-      await loadSales()
+      sales.value = sales.value.filter(sale => sale.id !== id)
     } catch (error) {
       $q.notify({
         type: 'negative',
@@ -1446,26 +1467,46 @@ async function printSale(sale) {
   }
 }
 
+const PRINT_ROW_LIMIT = 5
+
 function printReport() {
-  const reportRows = entries => entries.length
-    ? entries.map(entry => `
-      <tr>
-        <td>${escapeReportHtml(entry.label)}</td>
-        <td class="amount">${formatCurrency(entry.amount)}</td>
-      </tr>
-    `).join('')
-    : '<tr><td colspan="2" class="empty">No records</td></tr>'
-  const reportSection = (title, entries, total) => `
-    <section>
-      <h2>${escapeReportHtml(title)}</h2>
-      <table>
-        <tbody>${reportRows(entries)}</tbody>
-        <tfoot><tr><th>Total</th><th class="amount">${formatCurrency(total)}</th></tr></tfoot>
-      </table>
+  const reportPanel = (eyebrow, title, entries, total, emptyMessage, renderEntry, modifier = '') => `
+    <section class="report-panel ${modifier}">
+      <header class="panel-header">
+        <div class="eyebrow">${escapeReportHtml(eyebrow)}</div>
+        <h2>${escapeReportHtml(title)}</h2>
+      </header>
+      <div class="report-list">
+        ${entries.length
+          ? entries.slice(0, PRINT_ROW_LIMIT).map(renderEntry).join('') +
+            (entries.length > PRINT_ROW_LIMIT ? '<div class="more">...</div>' : '')
+          : `<div class="empty">${escapeReportHtml(emptyMessage)}</div>`}
+      </div>
+      <div class="panel-total"><span>Total</span><strong>${formatCurrency(total)}</strong></div>
     </section>
   `
-  const paymentSections = reportData.value.payments
-    .map(payment => reportSection(`${payment.type} Listing`, payment.entries, payment.total))
+  const amountEntry = entry => `
+    <div class="report-row">
+      <span>${escapeReportHtml(entry.label)}</span>
+      <strong>${formatCurrency(entry.amount)}</strong>
+    </div>
+  `
+  const groupedEntry = entry => `
+    <div class="report-row">
+      <span>${escapeReportHtml(entry.name)} <small>× ${entry.count}</small></span>
+      <strong>${formatCurrency(entry.total)}</strong>
+    </div>
+  `
+  const payments = reportData.value.payments
+    .map(payment => reportPanel(
+      'Payment',
+      `${payment.type} Listing`,
+      payment.entries,
+      payment.total,
+      'No records',
+      amountEntry,
+      'report-panel--payment'
+    ))
     .join('')
   const printContent = `
     <!DOCTYPE html>
@@ -1473,39 +1514,63 @@ function printReport() {
       <head>
         <title>Sales Report</title>
         <style>
-          @page { size: A4; margin: 16mm; }
-          body { color: #222; font-family: Arial, sans-serif; font-size: 11px; }
-          h1 { margin: 0; font-size: 22px; }
-          .period { margin: 5px 0 20px; color: #555; }
-          .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 14px; }
-          section { border: 1px dotted #444; break-inside: avoid; }
-          h2 { margin: 0; padding: 9px 10px; border-bottom: 1px solid #444; font-size: 13px; }
-          table { width: 100%; border-collapse: collapse; }
-          td, th { padding: 7px 10px; border-bottom: 1px dotted #999; text-align: left; }
-          tfoot th { border-bottom: 0; border-top: 1px solid #444; font-weight: 700; }
-          .amount { text-align: right; white-space: nowrap; }
-          .empty { color: #666; text-align: center; }
-          .summary { margin-top: 16px; padding: 14px; border: 2px solid #222; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 700; }
-          .summary small { display: block; margin-top: 4px; color: #555; font-size: 10px; font-weight: 400; }
+          @page { size: A4; margin: 12mm; }
+          * { box-sizing: border-box; }
+          body { margin: 0; color: #4A2038; font-family: Arial, sans-serif; font-size: 11px; }
+          .report-header { margin-bottom: 18px; }
+          h1 { margin: 0; font-size: 24px; }
+          .period { margin-top: 5px; color: #8A4E71; font-size: 11px; }
+          .report-grid { display: grid; gap: 12px; margin-bottom: 12px; }
+          .report-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .report-grid--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          .report-panel { display: flex; min-height: 150px; flex-direction: column; padding: 14px; border: 1px solid rgba(74, 32, 56, .16); border-top: 4px solid #E91E8C; border-radius: 8px; background: #fff; break-inside: avoid-page; }
+          .report-panel--payment { border-top-color: #1976D2; }
+          .report-panel--deduction { border-top-color: #C62828; }
+          .panel-header { margin-bottom: 12px; }
+          .eyebrow { color: #8A4E71; font-size: 8px; font-weight: 700; text-transform: uppercase; }
+          h2 { margin: 3px 0 0; font-size: 13px; }
+          .report-list { flex: 1; }
+          .report-row, .panel-total { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+          .report-row { padding: 6px 0; border-bottom: 1px solid rgba(74, 32, 56, .08); }
+          .report-row span { min-width: 0; overflow-wrap: anywhere; }
+          .report-row small { color: #8A4E71; }
+          .report-row strong, .panel-total strong { flex: 0 0 auto; white-space: nowrap; }
+          .more { padding: 4px 0; color: #8A4E71; font-weight: 700; text-align: center; }
+          .empty { display: grid; min-height: 54px; place-items: center; color: #9B7A8D; text-align: center; }
+          .panel-total { margin-top: 12px; padding-top: 9px; border-top: 2px solid rgba(74, 32, 56, .14); font-weight: 800; }
+          .summary { display: flex; min-height: 82px; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; padding: 18px 22px; border-radius: 8px; background: #4A2038; color: #fff; break-inside: avoid-page; }
+          .summary-label { font-size: 14px; font-weight: 800; }
+          .summary-formula { margin-top: 5px; color: rgba(255, 255, 255, .72); font-size: 9px; }
+          .summary-value { color: #FFB3D8; font-size: 24px; font-weight: 900; white-space: nowrap; }
+          @media print {
+            body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+            .report-row { break-inside: avoid-page; }
+            .summary { break-inside: avoid-page; }
+          }
         </style>
       </head>
       <body>
-        <h1>Sales Report</h1>
-        <div class="period">${escapeReportHtml(reportBranch.value)} | ${escapeReportHtml(reportPeriod.value)}</div>
-        <div class="grid">
-          ${reportSection('Service Types', reportData.value.services, reportData.value.serviceTotal)}
-          ${reportSection('Items', reportData.value.items, reportData.value.itemTotal)}
+        <header class="report-header">
+          <h1>Sales Report</h1>
+          <div class="period">${escapeReportHtml(reportBranch.value)} · ${escapeReportHtml(reportPeriod.value)}</div>
+        </header>
+        <div class="report-grid report-grid--two">
+          ${reportPanel('Sales mix', 'Service Types', reportData.value.services, reportData.value.serviceTotal, 'No service records', groupedEntry)}
+          ${reportPanel('Retail mix', 'Items', reportData.value.items, reportData.value.itemTotal, 'No item records', groupedEntry)}
         </div>
-        <div class="grid">${paymentSections}</div>
-        <div class="grid">
-          ${reportSection('Unpaid Sales', reportData.value.unpaidSales, reportData.value.unpaidSalesTotal)}
-          ${reportSection('Cash Advances', reportData.value.cashAdvances, reportData.value.cashAdvanceTotal)}
-          ${reportSection('Expenses', reportData.value.expenses, reportData.value.expenseTotal)}
-          ${reportSection('Gcash / Bank Transfer', reportData.value.electronicPayments, reportData.value.electronicPaymentTotal)}
+        <div class="report-grid report-grid--three">${payments}</div>
+        <div class="report-grid report-grid--two">
+          ${reportPanel('Deduction', 'Unpaid Sales', reportData.value.unpaidSales, reportData.value.unpaidSalesTotal, 'No unpaid sales', amountEntry, 'report-panel--deduction')}
+          ${reportPanel('Deduction', 'Cash Advances', reportData.value.cashAdvances, reportData.value.cashAdvanceTotal, 'No cash advances', amountEntry, 'report-panel--deduction')}
+          ${reportPanel('Deduction', 'Expenses', reportData.value.expenses, reportData.value.expenseTotal, 'No expenses', amountEntry, 'report-panel--deduction')}
+          ${reportPanel('Deduction', 'Gcash / Bank Transfer', reportData.value.electronicPayments, reportData.value.electronicPaymentTotal, 'No Gcash or Bank Transfer payments', amountEntry, 'report-panel--deduction')}
         </div>
         <div class="summary">
-          <div>Total Income<small>Payments ${formatCurrency(reportData.value.paymentTotal)} - deductions ${formatCurrency(reportData.value.deductionTotal)}</small></div>
-          <div>${formatCurrency(reportData.value.totalIncome)}</div>
+          <div>
+            <div class="summary-label">Total Income</div>
+            <div class="summary-formula">Payments ${formatCurrency(reportData.value.paymentTotal)} − deductions ${formatCurrency(reportData.value.deductionTotal)}</div>
+          </div>
+          <div class="summary-value">${formatCurrency(reportData.value.totalIncome)}</div>
         </div>
       </body>
     </html>
@@ -1533,15 +1598,28 @@ function escapeReportHtml(value) {
 async function pageReport() {
   showReportDialog.value = true
   reportLoading.value = true
+  reportData.value = createEmptyReportData()
   reportBranch.value = branchOptions.value.find(branch => branch.value === selectedBranch.value)?.label || 'All Branches'
   const periodStart = startDate.value ? `${startDate.value} ${startTime.value || '00:00'}` : 'Beginning'
   const periodEnd = endDate.value ? `${endDate.value} ${endTime.value || '23:59'}` : 'Present'
   reportPeriod.value = `${periodStart} to ${periodEnd}`
 
+  // The table only holds the loaded page, so the report fetches the full matching set once, on demand.
+  let reportSales = []
+  try {
+    const salesSnapshot = await getDocs(query(collection(db, 'sales'), ...buildSalesConstraints()))
+    reportSales = salesSnapshot.docs.map(mapSaleDoc).filter(matchesSearch)
+  } catch (error) {
+    console.error('Could not load sales for report:', error)
+    $q.notify({ type: 'negative', message: 'Could not load the report sales.' })
+    reportLoading.value = false
+    return
+  }
+
   const serviceGroups = {}
   let serviceTotal = 0
 
-  filteredSales.value.forEach(sale => {
+  reportSales.forEach(sale => {
     const services = Array.isArray(sale.service) ? sale.service : (sale.service ? [sale.service] : [])
     services.forEach((service, index) => {
       const name = getServiceName(service) || 'Unknown Service'
@@ -1562,7 +1640,7 @@ async function pageReport() {
   const itemGroups = {}
   let itemTotal = 0
 
-  filteredSales.value.forEach(sale => {
+  reportSales.forEach(sale => {
     const items = Array.isArray(sale.items) ? sale.items : []
     items.forEach(item => {
       const name = item?.name || 'Unknown Item'
@@ -1583,7 +1661,7 @@ async function pageReport() {
   const paymentBuckets = Object.fromEntries(paymentTypes.map(payment => [payment.type, []]))
   const unpaidSales = []
 
-  filteredSales.value.forEach(sale => {
+  reportSales.forEach(sale => {
     const total = Number(sale.total ?? sale.amount ?? 0)
     if (String(sale.paymentStatus || '').toLowerCase() === 'unpaid') {
       unpaidSales.push({
@@ -1620,12 +1698,15 @@ async function pageReport() {
   })
 
   try {
-    const [cashAdvanceSnapshot, expenseSnapshot] = await Promise.all([
-      getDocs(collection(db, 'cashAdvances')),
-      getDocs(collection(db, 'expenses'))
-    ])
     const startBoundary = buildFilterDateTime(startDate.value, startTime.value)
     const endBoundary = buildFilterDateTime(endDate.value, endTime.value, true)
+    const dateConstraints = []
+    if (startBoundary) dateConstraints.push(where('createdAt', '>=', startBoundary))
+    if (endBoundary) dateConstraints.push(where('createdAt', '<=', endBoundary))
+    const [cashAdvanceSnapshot, expenseSnapshot] = await Promise.all([
+      getDocs(query(collection(db, 'cashAdvances'), ...dateConstraints)),
+      getDocs(query(collection(db, 'expenses'), ...dateConstraints))
+    ])
     const matchesReportFilters = data => {
       if (selectedBranch.value && data.branchId !== selectedBranch.value) return false
       const createdAt = data.createdAt?.toDate?.() || data.createdAt
@@ -1696,14 +1777,6 @@ async function pageReport() {
 
 onMounted(() => {
   selectedBranch.value = userStore.userData?.branchId || ''
-
-  if (!userStore.isAdmin) {
-    const now = new Date()
-    startDate.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-    endDate.value = now.toISOString().split('T')[0]
-    startTime.value = '00:00'
-    endTime.value = '23:59'
-  }
 
   loadBranches()
   loadServiceTypes()

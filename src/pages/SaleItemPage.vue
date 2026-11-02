@@ -57,7 +57,8 @@
         row-key="id"
         flat
         :loading="loading"
-        :pagination="{ rowsPerPage: 10 }"
+        :pagination="{ rowsPerPage: 0 }"
+        hide-pagination
       >
         <template v-slot:body-cell-price="props">
           <q-td :props="props">
@@ -77,6 +78,16 @@
           </q-td>
         </template>
       </q-table>
+      <div v-if="hasMoreItems" class="row justify-center q-pa-md">
+        <q-btn
+          outline
+          color="pink-5"
+          no-caps
+          label="Load More"
+          :loading="loading"
+          @click="loadMoreSaleItems"
+        />
+      </div>
     </q-card>
 
     <!-- Add/Edit Dialog -->
@@ -172,10 +183,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { db, collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from '../boot/firebase'
+import { db, collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, where, orderBy, limit, startAfter } from '../boot/firebase'
 import { useQuasar } from 'quasar'
 import { formatCurrency } from '../utils/currency'
 
@@ -196,6 +207,8 @@ onMounted(async () => {
   await loadSaleItems()
 })
 
+
+const PAGE_SIZE = 10
 const loading = ref(false)
 const saleItems = ref([])
 const branches = ref([])
@@ -203,6 +216,8 @@ const showDialog = ref(false)
 const editingItem = ref(null)
 const searchText = ref('')
 const selectedBranch = ref('')
+const lastVisibleSaleItem = ref(null)
+const hasMoreItems = ref(false)
 
 const saleItemColumns = [
   { name: 'name', label: 'Service Type', field: 'name', align: 'left', sortable: true },
@@ -254,10 +269,6 @@ const filteredSaleItems = computed(() => {
     )
   }
 
-  if (selectedBranch.value) {
-    result = result.filter(item => item.branchId === selectedBranch.value)
-  }
-
   return result
 })
 
@@ -270,14 +281,34 @@ async function loadBranches() {
   }
 }
 
-async function loadSaleItems() {
+function buildServiceItemQuery(reset = true) {
+  const constraints = [orderBy('name', 'asc')]
+
+  if (selectedBranch.value) {
+    constraints.push(where('branchId', '==', selectedBranch.value))
+  }
+
+  if (!reset && lastVisibleSaleItem.value) {
+    constraints.push(startAfter(lastVisibleSaleItem.value))
+  }
+
+  constraints.push(limit(PAGE_SIZE))
+  return query(collection(db, 'service_types'), ...constraints)
+}
+
+async function loadSaleItems(reset = true) {
   loading.value = true
   try {
-    const snapshot = await getDocs(collection(db, 'service_types'))
-    saleItems.value = snapshot.docs.map(doc => ({
+    const q = buildServiceItemQuery(reset)
+    const snapshot = await getDocs(q)
+    const items = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }))
+
+    saleItems.value = reset ? items : [...saleItems.value, ...items]
+    lastVisibleSaleItem.value = snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : null
+    hasMoreItems.value = snapshot.docs.length === PAGE_SIZE
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -287,6 +318,16 @@ async function loadSaleItems() {
     loading.value = false
   }
 }
+
+function loadMoreSaleItems() {
+  return loadSaleItems(false)
+}
+
+watch(selectedBranch, () => {
+  lastVisibleSaleItem.value = null
+  saleItems.value = []
+  loadSaleItems()
+})
 
 const itemForm = ref({
   branchId: '',
